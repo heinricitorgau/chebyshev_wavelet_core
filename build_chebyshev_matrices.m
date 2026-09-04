@@ -64,8 +64,8 @@ function [P, Ftilde, info] = build_chebyshev_matrices(k, M, use_gpu, C, opts)
 %       另回傳係數向量 C (長度 \hat{N}) 所對應之 POM。
 %
 %   [P, Ftilde, info] = BUILD_CHEBYSHEV_MATRICES(..., Name, Value)
-%       'Format'        'full' (預設) 或 'sparse'。P 之非零密度約
-%                       1/(2M)，大型問題建議使用 'sparse'。
+%       'Format'        'full' (預設) 或 'sparse'。P 之非零密度趨近
+%                       1/(4M)，大型問題建議使用 'sparse'。
 %       'Precision'     'double' (預設) 或 'single'。消費級 GPU
 %                       (如 RTX 40 系列) 之 FP32 吞吐量遠高於 FP64，
 %                       高頻資料的大量矩陣相乘建議改用 'single'。
