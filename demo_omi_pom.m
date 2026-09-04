@@ -1,6 +1,6 @@
 %% DEMO_OMI_POM  第二類 Chebyshev 小波運算矩陣示範腳本
 %
-%   本腳本示範 build_chebyshev_matrices 的完整用法，共六個章節：
+%   本腳本示範本套件的完整用法，共八個章節：
 %
 %     1. 建構 OMI 並與論文 Eq.(4.9) 逐項比對
 %     2. 小波基底函數視覺化
@@ -9,6 +9,7 @@
 %     5. 論文 Example 1：一階線性 ODE
 %     6. 變係數 ODE：POM 的實際應用
 %     7. 效能與 GPU 加速
+%     8. 應用：金融時間序列去噪與趨勢特徵 (wavelet_denoise_series)
 %
 %   於 MATLAB 編輯器中可用 Ctrl+Enter 逐節執行；亦可直接
 %       >> demo_omi_pom
@@ -353,8 +354,85 @@ end
 fprintf(['  註：消費級 GeForce 顯卡的 FP64 吞吐量僅為 FP32 的 1/64，\n' ...
          '      double 精度下 GPU 未必勝過 CPU；single 精度才能發揮效能。\n']);
 
+%% 8. 應用：金融時間序列去噪與趨勢特徵 ====================================
+% 以 wavelet_denoise_series 將含噪價格投影至小波空間、濾除高頻成分，
+% 並由解析微分矩陣同步取得變化率。
+fprintf('\n【8】金融時間序列去噪 (wavelet_denoise_series)\n');
+
+rng(42);
+nObs    = 750;
+tDays   = (1:nObs).';
+truePx  = 100 + 12*sin(2*pi*tDays/250) + cumsum(0.06*randn(nObs,1));  % sine + random walk
+noisyPx = truePx + 1.2*randn(nObs,1);                                 % 加入高斯雜訊
+
+[pxSmooth, pxSlope, ~, dnDiag] = wavelet_denoise_series(noisyPx, tDays, 4, 4);
+
+fprintf('  雜訊估計 %.3f (真實 1.200) | 殘差 std %.3f | SNR 改善 %.1f dB\n', ...
+    dnDiag.sigmaHat, dnDiag.residualStd, dnDiag.snrGainDb);
+fprintf('  RMSE vs 真實訊號 : 原始 %.3f -> 去噪後 %.3f\n', ...
+    sqrt(mean((noisyPx - truePx).^2)), sqrt(mean((pxSmooth - truePx).^2)));
+fprintf('  子區間界點最大跳躍 : %.1f%% of std(S)\n', 100*dnDiag.maxBlockJumpRel);
+
+% 參數掃描：殘差與界點跳躍需一併考量
+fprintf('   k    每區塊點數   殘差std   界點跳躍   RMSE\n');
+for kk = 3:7
+    [ss, ~, ~, dd] = wavelet_denoise_series(noisyPx, tDays, kk, 4);
+    fprintf('  %2d   %8.1f   %7.3f   %6.1f%%   %6.3f\n', kk, dd.pointsPerBlock, ...
+        dd.residualStd, 100*dd.maxBlockJumpRel, sqrt(mean((ss - truePx).^2)));
+end
+
+if SHOW_PLOTS
+    figDn = figure('Name', 'Wavelet denoising', 'Color', 'w', ...
+        'Position', [80 80 980 720]);
+    bnd = (1:info.L-1) * nObs / info.L;      % 以 k=4 的 8 個子區間為界
+
+    subplot(3,1,1);
+    plot(tDays, noisyPx, '-', 'Color', [.72 .72 .75], 'LineWidth', .8);
+    hold on; grid on; box on;
+    plot(tDays, truePx, 'k-', 'LineWidth', 1.8);
+    plot(tDays, pxSmooth, '-', 'Color', [.85 .16 .16], 'LineWidth', 1.8);
+    xline((1:7)*nObs/8, ':', 'Color', [.6 .6 .6]);
+    legend({'noisy price', 'true signal', 'wavelet denoised'}, ...
+        'Location', 'northwest', 'FontSize', 10);
+    ylabel('price', 'FontSize', 12);
+    title('Chebyshev wavelet denoising of a simulated price series ($k=4$, $M=4$)', ...
+        'Interpreter', 'latex', 'FontSize', 13);
+    set(gca, 'FontSize', 10);
+
+    subplot(3,1,2);
+    plot(tDays, noisyPx - pxSmooth, '-', 'Color', [.25 .45 .85], 'LineWidth', .8);
+    grid on; box on;
+    xline((1:7)*nObs/8, ':', 'Color', [.6 .6 .6]);
+    ylabel('residual', 'FontSize', 12);
+    title(sprintf(['Residual: std = %.3f vs true noise std = 1.200 ' ...
+                   '(structureless $\\Rightarrow$ good fit)'], dnDiag.residualStd), ...
+        'Interpreter', 'latex', 'FontSize', 12);
+    set(gca, 'FontSize', 10);
+
+    subplot(3,1,3);
+    plot(tDays, pxSlope, '-', 'Color', [.1 .5 .3], 'LineWidth', 1.5);
+    hold on; grid on; box on;
+    plot(tDays, 12*(2*pi/250)*cos(2*pi*tDays/250), 'k--', 'LineWidth', 1.2);
+    yline(0, '-', 'Color', [.4 .4 .4]);
+    xline((1:7)*nObs/8, ':', 'Color', [.6 .6 .6]);
+    legend({'$dS/dt$ (wavelet)', 'derivative of the sine component'}, ...
+        'Interpreter', 'latex', 'Location', 'northwest', 'FontSize', 10);
+    xlabel('$t$ (trading days)', 'Interpreter', 'latex', 'FontSize', 12);
+    ylabel('$dS/dt$', 'Interpreter', 'latex', 'FontSize', 12);
+    title(['Derivative as a trend-strength feature ' ...
+           '(note the jumps at the dotted block boundaries)'], ...
+        'Interpreter', 'latex', 'FontSize', 12);
+    set(gca, 'FontSize', 10);
+    export_png(figDn, 'fig_denoise', EXPORT_PNG, FIG_DIR);
+end
+fprintf(['  註：本基底於子區間界點不連續，導數在界點（圖中虛線）會出現\n' ...
+         '      可見的跳躍，此為方法固有性質，詳見 help wavelet_denoise_series。\n']);
+
+
 fprintf('\n===============================================================\n');
-fprintf(' 示範結束。詳細 API 說明請執行： help build_chebyshev_matrices\n');
+fprintf(' 示範結束。詳細 API 說明請執行：\n');
+fprintf('   help build_chebyshev_matrices\n');
+fprintf('   help wavelet_denoise_series\n');
 fprintf('===============================================================\n');
 
 
