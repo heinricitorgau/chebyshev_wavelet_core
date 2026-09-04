@@ -93,7 +93,7 @@ function [P, Ftilde, info] = build_chebyshev_matrices(k, M, use_gpu, C, opts)
 %
 %   See also KRON, GPUARRAY, PAGEMTIMES.
 %
-%   Author : Kao,En-Tsai
+%   Author : Kao, En-Tsai
 %   License: MIT (see LICENSE)
 
 % =========================================================================
