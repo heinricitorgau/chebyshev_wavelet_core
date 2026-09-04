@@ -93,8 +93,8 @@ function [P, Ftilde, info] = build_chebyshev_matrices(k, M, use_gpu, C, opts)
 %
 %   See also KRON, GPUARRAY, PAGEMTIMES.
 %
-%   Author : chebyshev_wavelet_core
-%   License: MIT
+%   Author : Kao,En-Tsai
+%   License: MIT (see LICENSE)
 
 % =========================================================================
 % 0. 輸入驗證 (Input validation)

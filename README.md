@@ -323,4 +323,4 @@ chebyshev_wavelet_core/
 
 ## 授權
 
-MIT License.
+本專案採用 [MIT License](LICENSE)，Copyright (c) 2026 Kao,En-Tsai。
