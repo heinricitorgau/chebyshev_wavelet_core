@@ -25,6 +25,12 @@
 
 clear; clc; close all;
 SHOW_PLOTS = true;      % 設為 false 可在無圖形環境 (如 CI) 下執行
+EXPORT_PNG = false;     % 設為 true 可將圖表輸出成 PNG (README 所用圖檔)
+FIG_DIR    = 'figures'; % PNG 輸出目錄
+%
+% 圖表文字一律使用英文：MATLAB 預設字型不含 CJK 字元，中文標籤在
+% exportgraphics 輸出的 PNG 中會顯示為方框，且其他平台未必安裝中文字型。
+% (FIG_DIR 於實際輸出時才建立，見檔案末端的 export_png)
 
 fprintf('===============================================================\n');
 fprintf(' 第二類 Chebyshev 小波：OMI 與 POM 示範\n');
@@ -50,13 +56,7 @@ disp(info.Mblk * 2^k);
 fprintf('  離對角區塊 N (僅第一行非零)：\n');
 disp(info.Nblk * 2^k);
 
-% P 的區塊上三角結構：非零元分布圖
-if SHOW_PLOTS
-    figure('Name', 'OMI 稀疏結構', 'Color', 'w');
-    spy(sparse(P)); title('OMI $P$ 的區塊上三角結構 ($k=3,\ M=4$)', ...
-        'Interpreter', 'latex');
-    xlabel('column'); ylabel('row');
-end
+% (P 與 POM 的非零元分布圖統一於第 4 節繪製)
 
 
 %% 2. 小波基底函數視覺化 ==================================================
@@ -67,21 +67,27 @@ if SHOW_PLOTS
     tt  = linspace(0, 1, 4001);
     Psi = info.basis(tt);
 
-    figure('Name', '第二類 Chebyshev 小波基底', 'Color', 'w');
+    figBasis = figure('Name', 'Basis functions', 'Color', 'w', ...
+        'Position', [100 100 900 640]);
     for m = 0:M-1
-        subplot(M, 1, m+1); hold on; grid on;
+        subplot(M, 1, m+1); hold on; grid on; box on;
         for n = 1:info.L
             idx  = (n-1)*M + m + 1;
             mask = tt >= (n-1)/info.L & tt < n/info.L;
-            plot(tt(mask), Psi(idx, mask), 'LineWidth', 1.4);
+            plot(tt(mask), Psi(idx, mask), 'LineWidth', 1.6);
         end
-        ylabel(sprintf('$m = %d$', m), 'Interpreter', 'latex');
-        xlim([0 1]);
+        for b = 1:info.L-1                      % 子區間分界線
+            xline(b/info.L, ':', 'Color', [.6 .6 .6]);
+        end
+        ylabel(sprintf('$m = %d$', m), 'Interpreter', 'latex', 'FontSize', 12);
+        xlim([0 1]); set(gca, 'FontSize', 10);
         if m == 0
-            title('$\psi_{n,m}(t),\quad n = 1,\dots,4$', 'Interpreter', 'latex');
+            title('Second-kind Chebyshev wavelets $\psi_{n,m}(t)$, $k=3$, $M=4$', ...
+                'Interpreter', 'latex', 'FontSize', 13);
         end
     end
-    xlabel('$t$', 'Interpreter', 'latex');
+    xlabel('$t$', 'Interpreter', 'latex', 'FontSize', 12);
+    export_png(figBasis, 'fig_basis', EXPORT_PNG, FIG_DIR);
 end
 fprintf('  基底函數在各子區間 [%g, %g), ... 上分段定義\n', 0, 1/info.L);
 
@@ -113,11 +119,24 @@ end
 fprintf('  理論上每提高一階 k 應約降低 2^M = %d 倍 (M = %d)\n', 2^Mfix, Mfix);
 
 if SHOW_PLOTS
-    figure('Name', '收斂性', 'Color', 'w');
-    loglog(2.^(kList-1)*Mfix, errL2, 'o-', 'LineWidth', 1.6, 'MarkerFaceColor', 'w');
-    grid on; xlabel('$\hat{N} = 2^{k-1}M$', 'Interpreter', 'latex');
-    ylabel('$\|f - f_{\rm approx}\|_{L^2}$', 'Interpreter', 'latex');
-    title('第二類 Chebyshev 小波逼近之收斂性', 'Interpreter', 'latex');
+    figConv = figure('Name', 'Convergence', 'Color', 'w', ...
+        'Position', [100 100 760 560]);
+    Nv = 2.^(kList-1)*Mfix;
+    loglog(Nv, errL2, 'o-', 'LineWidth', 1.8, 'MarkerSize', 8, ...
+        'MarkerFaceColor', 'w'); hold on; grid on; box on;
+    ref = errL2(1) * (Nv/Nv(1)).^(-Mfix);       % 理論斜率 -M
+    loglog(Nv, ref, '--', 'Color', [.5 .5 .5], 'LineWidth', 1.4);
+    legend({'measured $L^2$ error', ...
+            sprintf('reference slope $\\hat{N}^{-%d}$', Mfix)}, ...
+        'Interpreter', 'latex', 'FontSize', 11, 'Location', 'southwest');
+    xlabel('$\hat{N} = 2^{k-1}M$', 'Interpreter', 'latex', 'FontSize', 13);
+    ylabel('$\|f - f_{\mathrm{approx}}\|_{L^2}$', 'Interpreter', 'latex', ...
+        'FontSize', 13);
+    title({'Convergence of the wavelet approximation', ...
+           '$f(t) = e^{t}\sin(4t)$, fixed $M = 4$'}, ...
+        'Interpreter', 'latex', 'FontSize', 13);
+    set(gca, 'FontSize', 11);
+    export_png(figConv, 'fig_convergence', EXPORT_PNG, FIG_DIR);
 end
 
 
@@ -154,10 +173,25 @@ for deg = [2 5]
 end
 
 if SHOW_PLOTS
-    figure('Name', 'POM 區塊對角結構', 'Color', 'w');
-    spy(sparse(Atil));
-    title(sprintf('POM $\\tilde{F}$ 之區塊對角結構 ($k=%d,\\ M=%d$)', kp, Mp), ...
-        'Interpreter', 'latex');
+    figStruct = figure('Name', 'Matrix structure', 'Color', 'w', ...
+        'Position', [100 100 900 440]);
+    subplot(1,2,1);
+    spy(sparse(P), 8);                          % 第 1 節建構之 OMI (k=3, M=4)
+    title({'OMI $P$ : block upper triangular', '$k=3$, $M=4$, $\hat{N}=16$'}, ...
+        'Interpreter', 'latex', 'FontSize', 12);
+    xlabel(sprintf('nnz = %d (%.1f%%)', nnz(P), 100*nnz(P)/numel(P)), ...
+        'FontSize', 10);
+    ylabel('row'); set(gca, 'FontSize', 10);
+
+    subplot(1,2,2);
+    spy(sparse(Atil), 6);
+    title({'POM $\tilde{F}$ : block diagonal', ...
+           sprintf('$k=%d$, $M=%d$, $\\hat{N}=%d$', kp, Mp, ipv.N)}, ...
+        'Interpreter', 'latex', 'FontSize', 12);
+    xlabel(sprintf('nnz = %d (%.1f%%)', nnz(Atil), 100*nnz(Atil)/numel(Atil)), ...
+        'FontSize', 10);
+    ylabel('row'); set(gca, 'FontSize', 10);
+    export_png(figStruct, 'fig_structure', EXPORT_PNG, FIG_DIR);
 end
 
 
@@ -190,18 +224,37 @@ for kk = [4 5 6]
 end
 
 if SHOW_PLOTS
-    figure('Name', 'Example 1', 'Color', 'w');
+    figEx1 = figure('Name', 'Example 1', 'Color', 'w', ...
+        'Position', [100 100 820 620]);
     subplot(2,1,1);
-    plot(tt, yExa, 'k-', 'LineWidth', 2); hold on; grid on;
-    plot(tt, y1(tt), 'r--', 'LineWidth', 1.6);
-    legend('精確解', '小波解 ($k=3,M=4$)', 'Interpreter', 'latex', ...
-        'Location', 'northwest');
-    ylabel('$y(t)$', 'Interpreter', 'latex');
-    title('論文 Example 1: $y'' + 2y = t,\ y(0)=0$', 'Interpreter', 'latex');
-    subplot(2,1,2);
-    semilogy(tt, abs(y1(tt) - yExa), 'b-', 'LineWidth', 1.4); grid on;
-    xlabel('$t$', 'Interpreter', 'latex');
-    ylabel('絕對誤差');
+    plot(tt, yExa, 'k-', 'LineWidth', 2.4); hold on; grid on; box on;
+    plot(tt, y1(tt), '--', 'Color', [.85 .16 .16], 'LineWidth', 1.8);
+    legend({'exact solution', 'wavelet solution ($k=3$, $M=4$)'}, ...
+        'Interpreter', 'latex', 'FontSize', 11, 'Location', 'northwest');
+    ylabel('$y(t)$', 'Interpreter', 'latex', 'FontSize', 13);
+    title(['Example 1 (paper Sec.5): $y'' + 2y = t$, $y(0)=0$, ' ...
+           'exact $y = \frac{t}{2}-\frac14+\frac14e^{-2t}$'], ...
+        'Interpreter', 'latex', 'FontSize', 13);
+    set(gca, 'FontSize', 11);
+
+    subplot(2,1,2); hold on; grid on; box on;
+    cmap = lines(4);
+    for jj = 1:4
+        kk = jj + 2;                            % k = 3,4,5,6
+        [Pk, ~, ik] = build_chebyshev_matrices(kk, 4);
+        Ek = ik.expand(@(t) t);
+        Ck = (eye(ik.N) + 2*Pk.') \ (Pk.'*Ek);
+        semilogy(tt, abs((Ck.'*ik.basis(tt)).' - yExa), 'LineWidth', 1.5, ...
+            'Color', cmap(jj,:), 'DisplayName', sprintf('$k = %d$', kk));
+    end
+    set(gca, 'YScale', 'log', 'FontSize', 11);
+    legend('Interpreter', 'latex', 'FontSize', 10, 'Location', 'east', ...
+        'NumColumns', 2);
+    xlabel('$t$', 'Interpreter', 'latex', 'FontSize', 13);
+    ylabel('absolute error', 'FontSize', 12);
+    title('Error decay with refinement ($M = 4$ fixed)', ...
+        'Interpreter', 'latex', 'FontSize', 12);
+    export_png(figEx1, 'fig_example1', EXPORT_PNG, FIG_DIR);
 end
 
 
@@ -228,15 +281,22 @@ for kk = [3 5 7]
     fprintf('  k = %d, M = %d : 最大絕對誤差 %.3e\n', kk, Mv, ...
         max(abs(yv - (1 - exp(-tt.^2/2)))));
     if kk == 7 && SHOW_PLOTS
-        figure('Name', '變係數 ODE', 'Color', 'w');
-        plot(tt, 1 - exp(-tt.^2/2), 'k-', 'LineWidth', 2); hold on; grid on;
-        plot(tt, yv, 'r--', 'LineWidth', 1.6);
-        legend('精確解', sprintf('小波解 ($k=%d,M=%d$)', kk, Mv), ...
-            'Interpreter', 'latex', 'Location', 'northwest');
-        xlabel('$t$', 'Interpreter', 'latex');
-        ylabel('$y(t)$', 'Interpreter', 'latex');
-        title('$y'' + t\,y = t,\ y(0)=0$（以 POM 處理變係數項）', ...
-            'Interpreter', 'latex');
+        figVar = figure('Name', 'Variable-coefficient ODE', 'Color', 'w', ...
+            'Position', [100 100 820 460]);
+        plot(tt, 1 - exp(-tt.^2/2), 'k-', 'LineWidth', 2.4); hold on;
+        grid on; box on;
+        plot(tt, yv, '--', 'Color', [.85 .16 .16], 'LineWidth', 1.8);
+        legend({'exact solution $y = 1-e^{-t^2/2}$', ...
+                sprintf('wavelet solution ($k=%d$, $M=%d$)', kk, Mv)}, ...
+            'Interpreter', 'latex', 'FontSize', 11, 'Location', 'northwest');
+        xlabel('$t$', 'Interpreter', 'latex', 'FontSize', 13);
+        ylabel('$y(t)$', 'Interpreter', 'latex', 'FontSize', 13);
+        title(sprintf(['Variable-coefficient ODE $y'' + t\\,y = t$, ' ...
+                       '$y(0)=0$ (solved via POM), max error %.1e'], ...
+                      max(abs(yv - (1 - exp(-tt.^2/2))))), ...
+            'Interpreter', 'latex', 'FontSize', 13);
+        set(gca, 'FontSize', 11);
+        export_png(figVar, 'fig_varcoef', EXPORT_PNG, FIG_DIR);
     end
 end
 fprintf(['  註：本例 a(t) = t 的局部次數僅為 1，POM 截斷影響輕微，\n' ...
@@ -299,6 +359,20 @@ fprintf('===============================================================\n');
 
 
 %% 局部工具函數 ===========================================================
+function export_png(figHandle, name, doExport, figDir)
+%EXPORT_PNG 將圖形輸出為 PNG (供 README 使用)
+if ~doExport
+    return;
+end
+if ~isfolder(figDir)
+    mkdir(figDir);
+end
+fpath = fullfile(figDir, [name '.png']);
+exportgraphics(figHandle, fpath, 'Resolution', 150, 'BackgroundColor', 'white');
+fprintf('  已輸出圖檔 : %s\n', fpath);
+end
+
+
 function out = ternary(cond, a, b)
 %TERNARY 三元選擇，僅供本腳本排版使用
 if cond

@@ -51,6 +51,10 @@ $$
 
 $$\langle \psi_{n,m},\psi_{n',m'}\rangle_{w_n}=\delta_{nn'}\delta_{mm'}$$
 
+![基底函數](figures/fig_basis.png)
+
+*$k=3,\ M=4$ 的 16 個基底函數。同一列為相同多項式次數 $m$ 的 4 個平移；各函數僅在自己的子區間 $[\frac{n-1}{4},\frac{n}{4})$ 上非零，支撐互斥（虛線為子區間分界）。*
+
 ### 積分運算矩陣 OMI（論文 Eq. (4.8)、Thm 4.1）
 
 $$
@@ -97,6 +101,10 @@ $$
 $$
 
 不同子區間的小波支撐互斥，故 $\tilde{F}$ 的所有離對角區塊恆為零矩陣。
+
+![矩陣結構](figures/fig_structure.png)
+
+*左：OMI $P$ 的區塊上三角結構（$k=3,\ M=4$），對角為 $M$ 區塊、上三角為 $N$ 區塊。右：POM $\tilde{F}$ 的區塊對角結構（$k=4,\ M=6$），共 $2^{k-1}=8$ 個 $6\times6$ 區塊。*
 
 ---
 
@@ -216,6 +224,20 @@ fprintf('N = %d, 密度 = %.4f\n', is.N, nnz(Ps)/is.N^2);   % N = 32768, 密度 
 
 另以論文 Example 1（$y'+2y=t,\ y(0)=0$）作端對端驗證：本模組解得 $c_{1,0}=0.003866313244751$，與論文印出的 `0.00386631324475085` 一致；$\max|y_{\text{num}}-y_{\text{exact}}|=9.94\times10^{-6}$。
 
+### 收斂階數
+
+固定 $M=4$、逐次加密解析度 $k=1,\dots,7$，逼近 $f(t)=e^{t}\sin(4t)$：
+
+![收斂性](figures/fig_convergence.png)
+
+實測 $L^2$ 誤差自 $7.9\times10^{-2}$ 單調降至 $4.6\times10^{-9}$，每提高一階 $k$ 誤差降低 $2^{4.00}$ 倍，與理論斜率 $\hat{N}^{-M}$（灰色虛線，兩線幾乎完全重合）一致。
+
+| $k$ | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|
+| $\hat{N}$ | 4 | 8 | 16 | 32 | 64 | 128 | 256 |
+| $L^2$ 誤差 | 7.93e-02 | 5.04e-03 | 3.03e-04 | 1.90e-05 | 1.19e-06 | 7.43e-08 | 4.65e-09 |
+| 收斂階 | — | 3.98 | 4.05 | 4.00 | 4.00 | 4.00 | 4.00 |
+
 驗證項目 (c) 的參考值取**閉式反導函數** $\int_{-1}^{x}U_m=\frac{T_{m+1}(x)-T_{m+1}(-1)}{m+1}$ 而非數值求積——小波在子區間界點不連續，梯形法會在跨越跳躍時引入 $O(h)$ 誤差（實測會誤報約 2.3e-3）。
 
 ---
@@ -308,6 +330,32 @@ err = max(abs(y(tt) - (tt/2 - 1/4 + exp(-2*tt)/4)));
 fprintf('max error = %.3e\n', err);               % max error = 9.942e-06
 ```
 
+![Example 1](figures/fig_example1.png)
+
+*上：$k=3,\ M=4$ 的小波解與精確解幾乎完全重合。下：固定 $M=4$ 加密 $k$ 時的絕對誤差，$k=3\to6$ 的最大誤差依次為 9.94e-06、7.02e-07、4.67e-08、3.01e-09。*
+
+### 變係數 ODE：POM 的實際應用
+
+$$y'(t)+t\,y(t)=t,\qquad y(0)=0,\qquad \text{精確解 } y=1-e^{-t^2/2}$$
+
+令 $y'=C^T\Psi$，則 $y=(P^TC)^T\Psi=:D^T\Psi$。變係數項以 POM 處理：$a(t)y(t)=(A^T\Psi)(\Psi^TD)=\Psi^T\tilde{A}D$，代入後得
+
+$$(I+\tilde{A}P^T)\,C=G$$
+
+```matlab
+[Pv, ~, iv] = build_chebyshev_matrices(7, 6);
+Av = iv.expand(@(t) t);                    % a(t) = t
+Gv = iv.expand(@(t) t);                    % g(t) = t
+[~, Atl]    = build_chebyshev_matrices(7, 6, false, Av);
+
+Cv = (eye(iv.N) + Atl*Pv.') \ Gv;          % y' 的係數
+Dv = Pv.' * Cv;                            % y 的係數（y(0)=0）
+```
+
+![變係數 ODE](figures/fig_varcoef.png)
+
+*$k=7,\ M=6$ 時最大誤差 $5.2\times10^{-16}$，已達機器精度。$k=3/5/7$ 的誤差依次為 8.20e-09、2.11e-12、5.18e-16。*
+
 ---
 
 ## 專案結構
@@ -318,9 +366,17 @@ chebyshev_wavelet_core/
 │                                %   函數展開、自我驗證、閉式反導函數、
 │                                %   Chebyshev 多項式遞迴）
 ├── demo_omi_pom.m               % 示範腳本（7 個章節，見下）
+├── figures/                     % README 所用圖檔（由示範腳本產生）
+│   ├── fig_basis.png
+│   ├── fig_structure.png
+│   ├── fig_convergence.png
+│   ├── fig_example1.png
+│   └── fig_varcoef.png
 ├── README.md
 └── LICENSE
 ```
+
+圖檔可隨時重新產生：將 `demo_omi_pom.m` 開頭的 `EXPORT_PNG` 設為 `true` 後執行，即會輸出至 `figures/`（圖表文字採英文，因 MATLAB 預設字型不含 CJK 字元，中文標籤在匯出的 PNG 中會顯示為方框）。
 
 ### 示範腳本
 
