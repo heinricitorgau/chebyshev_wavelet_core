@@ -1,6 +1,6 @@
 %% DEMO_OMI_POM  第二類 Chebyshev 小波運算矩陣示範腳本
 %
-%   本腳本示範本套件的完整用法，共九個章節：
+%   本腳本示範本套件的完整用法，共十個章節：
 %
 %     1. 建構 OMI 並與論文 Eq.(4.9) 逐項比對
 %     2. 小波基底函數視覺化
@@ -11,6 +11,7 @@
 %     7. 效能與 GPU 加速
 %     8. 應用：金融時間序列去噪與趨勢特徵 (wavelet_denoise_series)
 %     9. 因果特徵萃取與前視偏誤量化 (wavelet_features)
+%    10. 預測模型與 walk-forward 回測 (walkforward_backtest)
 %
 %   於 MATLAB 編輯器中可用 Ctrl+Enter 逐節執行；亦可直接
 %       >> demo_omi_pom
@@ -521,11 +522,97 @@ if SHOW_PLOTS
 end
 
 
+%% 10. 預測模型與 walk-forward 回測 ========================================
+% 先確認回測框架本身在「無訊號」資料上不會產生績效，再看它能否偵測到
+% 真實訊號。順序不可顛倒：框架未經證實之前，任何績效數字都不可信。
+fprintf('\n【10】預測模型與 walk-forward 回測 (walkforward_backtest)\n');
+
+nB   = 2000;
+tB   = (1:nB).';
+nullR = 100;
+
+% (I) 純隨機漫步：不具可預測性
+rng(301);
+pxRW = 100 * cumprod(1 + 0.0003 + 0.011*randn(nB,1));
+Frw  = wavelet_features(pxRW, tB);
+rRW  = walkforward_backtest(Frw, pxRW, 'NullRuns', nullR, 'CostBps', 5);
+
+% (II) 含真實週期成分：可預測
+rng(11);
+pxSG = 100 + 15*sin(2*pi*(1:nB).'/180) + cumsum(0.25*randn(nB,1)) + randn(nB,1);
+Fsg  = wavelet_features(pxSG, tB);
+rSG  = walkforward_backtest(Fsg, pxSG, 'NullRuns', nullR, 'CostBps', 5);
+
+fprintf('  %-16s %-10s %-12s %-10s %-12s %s\n', ...
+    '資料', '準確率', 'p(準確率)', 'Sharpe', 'p(Sharpe)', '樣本外筆數');
+fprintf('  %-16s %-10.4f %-12.4f %-10.2f %-12.4f %d\n', '純隨機漫步', ...
+    rRW.accuracy, rRW.null.pAccuracy, rRW.sharpe, rRW.null.pSharpe, rRW.nTest);
+fprintf('  %-16s %-10.4f %-12.4f %-10.2f %-12.4f %d\n', '含週期訊號', ...
+    rSG.accuracy, rSG.null.pAccuracy, rSG.sharpe, rSG.null.pSharpe, rSG.nTest);
+fprintf('  買進持有 Sharpe：隨機漫步 %.2f，含訊號 %.2f\n', ...
+    rRW.baseline.buyHold.sharpe, rSG.baseline.buyHold.sharpe);
+fprintf(['  => 隨機漫步上觀測值落在虛無分布之內，含訊號時遠在其外。\n' ...
+         '     注意一：單一次結果本來就會有約 5%% 的機率偶然顯著，故不可只看\n' ...
+         '     一次。框架的校準是以 40 條隨機漫步驗證 P(p<0.05) 是否接近名目\n' ...
+         '     水準（見 help walkforward_backtest 的校準表），而非靠單次結果。\n' ...
+         '     注意二：含訊號序列為合成資料，其 Sharpe 遠高於真實市場可得水準。\n']);
+
+if SHOW_PLOTS
+    figBt = figure('Name', 'Walk-forward backtest', 'Color', 'w', ...
+        'Position', [70 70 980 700]);
+
+    subplot(2,2,1);
+    plot(tB, rRW.equity, '-', 'Color', [.2 .4 .8], 'LineWidth', 1.6);
+    hold on; grid on; box on;
+    plot(tB, pxRW/pxRW(1), '-', 'Color', [.6 .6 .6], 'LineWidth', 1.2);
+    legend({'strategy', 'buy \& hold'}, 'Interpreter', 'latex', ...
+        'Location', 'northwest', 'FontSize', 9);
+    xlabel('$t$', 'Interpreter', 'latex'); ylabel('equity');
+    title(sprintf('Random walk: Sharpe %.2f, $p = %.3f$', ...
+        rRW.sharpe, rRW.null.pSharpe), 'Interpreter', 'latex', 'FontSize', 11);
+    set(gca, 'FontSize', 9);
+
+    subplot(2,2,2);
+    plot(tB, rSG.equity, '-', 'Color', [.15 .55 .3], 'LineWidth', 1.6);
+    hold on; grid on; box on;
+    plot(tB, pxSG/pxSG(1), '-', 'Color', [.6 .6 .6], 'LineWidth', 1.2);
+    legend({'strategy', 'buy \& hold'}, 'Interpreter', 'latex', ...
+        'Location', 'northwest', 'FontSize', 9);
+    xlabel('$t$', 'Interpreter', 'latex'); ylabel('equity');
+    title(sprintf('With real signal: Sharpe %.2f, $p = %.3f$', ...
+        rSG.sharpe, rSG.null.pSharpe), 'Interpreter', 'latex', 'FontSize', 11);
+    set(gca, 'FontSize', 9);
+
+    subplot(2,2,3);
+    histogram(rRW.null.sharpe, 20, 'FaceColor', [.6 .6 .65], ...
+        'EdgeColor', 'none'); hold on; grid on; box on;
+    xline(rRW.sharpe, 'r-', 'LineWidth', 2);
+    xlabel('Sharpe'); ylabel('count');
+    title('Null distribution vs observed (random walk)', ...
+        'Interpreter', 'latex', 'FontSize', 11);
+    legend({'null', 'observed'}, 'Location', 'northeast', 'FontSize', 9);
+    set(gca, 'FontSize', 9);
+
+    subplot(2,2,4);
+    histogram(rSG.null.sharpe, 20, 'FaceColor', [.6 .6 .65], ...
+        'EdgeColor', 'none'); hold on; grid on; box on;
+    xline(rSG.sharpe, 'r-', 'LineWidth', 2);
+    xlabel('Sharpe'); ylabel('count');
+    title('Null distribution vs observed (with signal)', ...
+        'Interpreter', 'latex', 'FontSize', 11);
+    legend({'null', 'observed'}, 'Location', 'north', 'FontSize', 9);
+    set(gca, 'FontSize', 9);
+
+    export_png(figBt, 'fig_backtest', EXPORT_PNG, FIG_DIR);
+end
+
+
 fprintf('\n===============================================================\n');
 fprintf(' 示範結束。詳細 API 說明請執行：\n');
 fprintf('   help build_chebyshev_matrices\n');
 fprintf('   help wavelet_denoise_series\n');
 fprintf('   help wavelet_features\n');
+fprintf('   help walkforward_backtest\n');
 fprintf('===============================================================\n');
 
 
