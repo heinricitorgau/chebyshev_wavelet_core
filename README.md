@@ -1,44 +1,42 @@
 # chebyshev_wavelet_core
 
-> 第二類 Chebyshev 小波（Second-kind Chebyshev Wavelets）之**積分運算矩陣（OMI）**與**乘積運算矩陣（POM）**的 MATLAB 高效能實作。
->
-> *MATLAB implementation of the operational matrices of integration (OMI) and product operation matrices (POM) for second-kind Chebyshev wavelets, with GPU acceleration.*
+> High-performance MATLAB implementation of the **Operational Matrix of Integration (OMI)** and **Product Operation Matrix (POM)** for second-kind Chebyshev wavelets, with optional GPU acceleration.
 
 ![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-orange)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 ![GPU](https://img.shields.io/badge/GPU-gpuArray%20optional-76b900)
 
-本模組將論文中以 $k=3,\ M=4$ 手算列出的 $16\times16$ 矩陣，推廣為**任意解析度 $k$ 與任意多項式階數 $M$ 的通式實作**，並通過與原論文 Eq.(4.9) 的逐項比對（誤差為 0）。
+This module generalizes the hand-computed $16\times16$ matrix ($k=3,\ M=4$) from the reference paper into a **fully general implementation for arbitrary resolution $k$ and polynomial order $M$**, verified element-wise against the paper's Eq. (4.9) with zero error.
 
 ---
 
-## 目錄
+## Table of Contents
 
-- [理論背景](#理論背景)
-- [系統需求](#系統需求)
-- [快速開始](#快速開始)
-- [API 參考](#api-參考)
-- [數值驗證](#數值驗證)
-- [效能基準](#效能基準)
-- [數值特性與已知限制](#數值特性與已知限制)
-- [與原論文的差異說明](#與原論文的差異說明)
-- [應用範例：論文 Example 1](#應用範例論文-example-1)
-- [應用模組：金融時間序列去噪](#應用模組金融時間序列去噪-wavelet_denoise_series)
-- [應用模組：因果特徵萃取](#應用模組因果特徵萃取-wavelet_features)
-- [應用模組：預測模型與回測](#應用模組預測模型與-walk-forward-回測-walkforward_backtest)
-- [專案結構](#專案結構)
-- [引用](#引用)
-- [授權](#授權)
+- [Theoretical Background](#theoretical-background)
+- [System Requirements](#system-requirements)
+- [Quick Start](#quick-start)
+- [API Reference](#api-reference)
+- [Numerical Verification](#numerical-verification)
+- [Performance Benchmarks](#performance-benchmarks)
+- [Numerical Properties & Known Limitations](#numerical-properties--known-limitations)
+- [Deviations from the Original Paper](#deviations-from-the-original-paper)
+- [Application Example: Paper Example 1](#application-example-paper-example-1)
+- [Application Module: Financial Time-Series Denoising](#application-module-financial-time-series-denoising-wavelet_denoise_series)
+- [Application Module: Causal Feature Extraction](#application-module-causal-feature-extraction-wavelet_features)
+- [Application Module: Prediction & Walk-Forward Backtesting](#application-module-prediction--walk-forward-backtesting-walkforward_backtest)
+- [Project Structure](#project-structure)
+- [Citation](#citation)
+- [License](#license)
 
 ---
 
-## 理論背景
+## Theoretical Background
 
-實作依據下列論文：
+This implementation is based on the following paper:
 
 > H. K. Nigam and M. M. Alam, *Convergence analysis of an efficient Chebyshev wavelet and its applications to differential equations via operational matrices of integration*, **Tamkang Journal of Mathematics**, 57(3), 171–193, 2026. DOI: [10.5556/j.tkjm.57.2026.5958](https://doi.org/10.5556/j.tkjm.57.2026.5958)
 
-### 小波定義（論文 Eqs. (2.1)–(2.3)）
+### Wavelet Definition (Paper Eqs. (2.1)–(2.3))
 
 $$
 \psi_{n,m}(t)=
@@ -50,15 +48,15 @@ $$
 \tilde{U}_m(x)=\sqrt{\tfrac{2}{\pi}}\,U_m(x)
 $$
 
-其中 $n=1,\dots,2^{k-1}$、$m=0,\dots,M-1$，$U_m$ 為第二類 Chebyshev 多項式，滿足遞迴式 $U_{m+1}=2xU_m-U_{m-1}$。權函數經伸縮平移為 $w_n(t)=\sqrt{1-(2^kt-2n+1)^2}$，使基底在 $L^2_{w_n}[0,1)$ 中正交歸一：
+where $n=1,\dots,2^{k-1}$, $m=0,\dots,M-1$, and $U_m$ is the Chebyshev polynomial of the second kind satisfying the recurrence $U_{m+1}=2xU_m-U_{m-1}$. The weight function is rescaled and shifted to $w_n(t)=\sqrt{1-(2^kt-2n+1)^2}$, so that the basis is orthonormal in $L^2_{w_n}[0,1)$:
 
 $$\langle \psi_{n,m},\psi_{n',m'}\rangle_{w_n}=\delta_{nn'}\delta_{mm'}$$
 
-![基底函數](figures/fig_basis.png)
+![Basis Functions](figures/fig_basis.png)
 
-*$k=3,\ M=4$ 的 16 個基底函數。同一列為相同多項式次數 $m$ 的 4 個平移；各函數僅在自己的子區間 $[\frac{n-1}{4},\frac{n}{4})$ 上非零，支撐互斥（虛線為子區間分界）。*
+*The 16 basis functions for $k=3,\ M=4$. Each row corresponds to a fixed polynomial degree $m$ with 4 translates; each function is nonzero only on its own subinterval $[\frac{n-1}{4},\frac{n}{4})$, with mutually exclusive supports (dashed lines mark subinterval boundaries).*
 
-### 積分運算矩陣 OMI（論文 Eq. (4.8)、Thm 4.1）
+### Operational Matrix of Integration — OMI (Paper Eq. (4.8), Thm 4.1)
 
 $$
 \int_0^t \Psi(\tau)\,d\tau \simeq P\,\Psi(t),
@@ -72,7 +70,7 @@ O & O & O & \cdots & M
 \end{pmatrix},\qquad \hat{N}=2^{k-1}M
 $$
 
-本模組由 $\int U_m=\frac{T_{m+1}}{m+1}$ 與 $T_j=\frac{U_j-U_{j-2}}{2}\ (j\ge2)$ 推導出通式：
+This module derives the general formula from $\int U_m=\frac{T_{m+1}}{m+1}$ and $T_j=\frac{U_j-U_{j-2}}{2}\ (j\ge2)$:
 
 $$
 \int_{-1}^{x}U_0 = U_0+\tfrac12 U_1,
@@ -83,16 +81,16 @@ $$
 $$
 M(m,j)=2^{-k}g_{m,j},
 \qquad
-N(m,1)=\begin{cases}\dfrac{2^{-k}\cdot 2}{m+1}, & m \text{ 為偶數}\\[2mm] 0, & m \text{ 為奇數}\end{cases}
+N(m,1)=\begin{cases}\dfrac{2^{-k}\cdot 2}{m+1}, & m \text{ even}\\[2mm] 0, & m \text{ odd}\end{cases}
 $$
 
-（$N$ 僅第一行非零：越過子區間後積分值為常數，只能由常數基底 $\psi_{n',0}$ 表示。）
+($N$ is nonzero only in the first column: once a subinterval is crossed, the integral value becomes a constant that can only be represented by the constant basis function $\psi_{n',0}$.)
 
-### 乘積運算矩陣 POM（論文 Eqs. (4.16)–(4.19)）
+### Product Operation Matrix — POM (Paper Eqs. (4.16)–(4.19))
 
 $$F^{T}\Psi(t)\Psi^{T}(t)=\Psi^{T}(t)\tilde{F},\qquad \tilde{F}=\mathrm{blkdiag}(H_1,\dots,H_{2^{k-1}})$$
 
-由線性化公式 $U_lU_j=\sum_{r=0}^{\min(l,j)}U_{l+j-2r}$ 與正交性 $\int_{-1}^{1}U_aU_i\sqrt{1-x^2}\,dx=\frac{\pi}{2}\delta_{ai}$ 得
+Using the linearization formula $U_lU_j=\sum_{r=0}^{\min(l,j)}U_{l+j-2r}$ and orthogonality $\int_{-1}^{1}U_aU_i\sqrt{1-x^2}\,dx=\frac{\pi}{2}\delta_{ai}$:
 
 $$
 H_n(i,j)=\alpha\sum_{l}c_{n,l}\Lambda_{i,j,l},
@@ -100,232 +98,232 @@ H_n(i,j)=\alpha\sum_{l}c_{n,l}\Lambda_{i,j,l},
 $$
 
 $$
-\Lambda_{i,j,l}=\begin{cases}1, & |l-j|\le i\le l+j \ \text{且}\ i\equiv l+j \pmod 2\\ 0, & \text{otherwise}\end{cases}
+\Lambda_{i,j,l}=\begin{cases}1, & |l-j|\le i\le l+j \ \text{and}\ i\equiv l+j \pmod 2\\ 0, & \text{otherwise}\end{cases}
 $$
 
-不同子區間的小波支撐互斥，故 $\tilde{F}$ 的所有離對角區塊恆為零矩陣。
+Since wavelet supports across different subintervals are mutually exclusive, all off-diagonal blocks of $\tilde{F}$ are identically zero.
 
-![矩陣結構](figures/fig_structure.png)
+![Matrix Structure](figures/fig_structure.png)
 
-*左：OMI $P$ 的區塊上三角結構（$k=3,\ M=4$），對角為 $M$ 區塊、上三角為 $N$ 區塊。右：POM $\tilde{F}$ 的區塊對角結構（$k=4,\ M=6$），共 $2^{k-1}=8$ 個 $6\times6$ 區塊。*
+*Left: Block upper-triangular structure of OMI $P$ ($k=3,\ M=4$), with diagonal $M$-blocks and upper-triangular $N$-blocks. Right: Block-diagonal structure of POM $\tilde{F}$ ($k=4,\ M=6$), consisting of $2^{k-1}=8$ blocks of size $6\times6$.*
 
 ---
 
-## 系統需求
+## System Requirements
 
-| 項目 | 需求 |
+| Item | Requirement |
 |---|---|
-| MATLAB | **R2021a 以上**（`arguments` 區塊之 name-value 語法） |
-| 必要工具箱 | 無（純 MATLAB 核心函式） |
-| GPU 加速 | Parallel Computing Toolbox + CUDA 相容顯示卡（**選用**） |
-| 記憶體 | 預設上限 24 GB，適用 32 GB 主機；可由 `'MemoryLimitGB'` 調整 |
+| MATLAB | **R2021a or later** (name-value syntax in `arguments` blocks) |
+| Required Toolboxes | None (pure MATLAB core functions) |
+| GPU Acceleration | Parallel Computing Toolbox + CUDA-compatible GPU (**optional**) |
+| Memory | Default limit 24 GB, suitable for 32 GB machines; adjustable via `'MemoryLimitGB'` |
 
-未安裝 Parallel Computing Toolbox 或無可用 GPU 時，`use_gpu = true` 會發出警告並自動回退至 CPU，不會中斷執行。
+When the Parallel Computing Toolbox is not installed or no GPU is available, setting `use_gpu = true` will issue a warning and automatically fall back to CPU without interrupting execution.
 
-## 安裝
+## Installation
 
 ```matlab
 addpath('path/to/chebyshev_wavelet_core');
-savepath;   % 選用：永久加入搜尋路徑
+savepath;   % Optional: permanently add to search path
 ```
 
 ---
 
-## 快速開始
+## Quick Start
 
-最快的入門方式是直接執行示範腳本（涵蓋建構、驗證、收斂性、解 ODE 與效能量測）：
+The fastest way to get started is to run the demo script (covers construction, verification, convergence, ODE solving, and performance measurement):
 
 ```matlab
 demo_omi_pom
 ```
 
-以下為個別功能的最小範例：
+Below are minimal examples for individual features:
 
 ```matlab
-%% 1. 論文情形 k = 3, M = 4，並執行自我驗證
+%% 1. Paper case k = 3, M = 4, with self-verification
 [P, ~, info] = build_chebyshev_matrices(3, 4, false, [], 'Verify', true);
 disp(info.verify)
-%        paperEq49: 0              <- 與論文 Eq.(4.9) 逐項相同
+%        paperEq49: 0              <- element-wise match with Eq.(4.9)
 %   orthonormality: 3.3573e-16
 % integrationExactness: 1.1102e-16
 
-%% 2. 建立 f(t) = t 對應的乘積運算矩陣 POM
-E = info.expand(@(t) t);                       % 論文 Eq.(5.5)
+%% 2. Build the Product Operation Matrix (POM) for f(t) = t
+E = info.expand(@(t) t);                       % Paper Eq.(5.5)
 [P, Ftilde] = build_chebyshev_matrices(3, 4, false, E);
 
-%% 3. GPU 單精度加速（適合高頻資料的大量矩陣相乘）
+%% 3. GPU single-precision acceleration (for large matrix operations on high-frequency data)
 Pg = build_chebyshev_matrices(10, 8, true, [], 'Precision', 'single');
 class(Pg)      % gpuArray
-A  = Pg * Pg;  % 在 GPU 上運算
+A  = Pg * Pg;  % computed on GPU
 
-%% 4. 超大型問題改用稀疏格式
+%% 4. Sparse format for very large problems
 [Ps, ~, is] = build_chebyshev_matrices(13, 8, false, [], 'Format', 'sparse');
-fprintf('N = %d, 密度 = %.4f\n', is.N, nnz(Ps)/is.N^2);   % N = 32768, 密度 = 0.0313
+fprintf('N = %d, density = %.4f\n', is.N, nnz(Ps)/is.N^2);   % N = 32768, density = 0.0313
 ```
 
 ---
 
-## API 參考
+## API Reference
 
 ```matlab
 [P, Ftilde, info] = build_chebyshev_matrices(k, M, use_gpu, C, Name, Value)
 ```
 
-### 位置引數
+### Positional Arguments
 
-| 引數 | 型別 | 預設 | 說明 |
+| Argument | Type | Default | Description |
 |---|---|---|---|
-| `k` | 正整數 | — | 小波解析度，子區間數 $L=2^{k-1}$ |
-| `M` | 正整數 | — | 多項式階數，$m=0,\dots,M-1$ |
-| `use_gpu` | logical | `false` | 是否以 `gpuArray` 建構並保留於 GPU |
-| `C` | double 向量 | `[]` | 長度 $\hat{N}=2^{k-1}M$ 的係數向量；提供時才計算 POM |
+| `k` | positive integer | — | Wavelet resolution; number of subintervals $L=2^{k-1}$ |
+| `M` | positive integer | — | Polynomial order, $m=0,\dots,M-1$ |
+| `use_gpu` | logical | `false` | Whether to construct and keep on GPU via `gpuArray` |
+| `C` | double vector | `[]` | Coefficient vector of length $\hat{N}=2^{k-1}M$; POM is computed only when provided |
 
-### 名稱－值選項
+### Name-Value Options
 
-| 名稱 | 可選值 | 預設 | 說明 |
+| Name | Values | Default | Description |
 |---|---|---|---|
-| `'Format'` | `'full'` \| `'sparse'` | `'full'` | 稀疏格式約可省下 $4M$ 倍記憶體（見[限制](#數值特性與已知限制)） |
-| `'Precision'` | `'double'` \| `'single'` | `'double'` | 消費級 GPU 的 FP32 吞吐量遠高於 FP64，高頻資料建議 `'single'` |
-| `'MemoryLimitGB'` | 正數 | `24` | 超過即報錯，避免 out-of-memory 或系統換頁 |
-| `'Verify'` | logical | `false` | 執行自我驗證，結果寫入 `info.verify` |
+| `'Format'` | `'full'` \| `'sparse'` | `'full'` | Sparse format saves ~$4M\times$ memory (see [Limitations](#numerical-properties--known-limitations)) |
+| `'Precision'` | `'double'` \| `'single'` | `'double'` | Consumer GPUs have much higher FP32 than FP64 throughput; `'single'` is recommended for high-frequency data |
+| `'MemoryLimitGB'` | positive number | `24` | Raises an error if exceeded to prevent out-of-memory or system paging |
+| `'Verify'` | logical | `false` | Runs self-verification; results are stored in `info.verify` |
 
-### 輸出
+### Outputs
 
-| 輸出 | 說明 |
+| Output | Description |
 |---|---|
-| `P` | 積分運算矩陣 OMI，$\hat{N}\times\hat{N}$ 區塊上三角矩陣 |
-| `Ftilde` | 乘積運算矩陣 POM，區塊對角矩陣；未提供 `C` 時為 `[]` |
-| `info` | 結構體，欄位如下 |
+| `P` | Operational Matrix of Integration (OMI), $\hat{N}\times\hat{N}$ block upper-triangular matrix |
+| `Ftilde` | Product Operation Matrix (POM), block-diagonal; returns `[]` when `C` is not provided |
+| `info` | Struct with fields listed below |
 
-`info` 欄位：
+`info` fields:
 
-| 欄位 | 說明 |
+| Field | Description |
 |---|---|
-| `.N` `.L` `.k` `.M` | 矩陣階數 $\hat{N}$、子區間數 $L$、輸入參數 |
-| `.alpha` | 尺度常數 $\alpha=2^{k/2}\sqrt{2/\pi}$ |
-| `.Mblk` `.Nblk` | $M\times M$ 之對角／離對角區塊 |
-| `.Lambda` | $M\times M\times M$ 三階線性化張量 $\Lambda_{i,j,l}$ |
-| `.basis` | `@(t)` 求值 $\Psi(t)$，回傳 $\hat{N}\times$`numel(t)` |
-| `.expand` | `@(fh)` 將函數投影為係數向量 $C$（Gauss–Chebyshev 求積） |
-| `.device` `.precision` `.format` `.bytes` | 建構環境與記憶體用量 |
-| `.timeOMI` `.timePOM` | 各階段建構耗時（秒） |
-| `.verify` | `'Verify',true` 時的驗證結果 |
+| `.N` `.L` `.k` `.M` | Matrix dimension $\hat{N}$, number of subintervals $L$, input parameters |
+| `.alpha` | Scale constant $\alpha=2^{k/2}\sqrt{2/\pi}$ |
+| `.Mblk` `.Nblk` | $M\times M$ diagonal / off-diagonal blocks |
+| `.Lambda` | $M\times M\times M$ third-order linearization tensor $\Lambda_{i,j,l}$ |
+| `.basis` | `@(t)` evaluates $\Psi(t)$, returning $\hat{N}\times$`numel(t)` |
+| `.expand` | `@(fh)` projects a function onto the basis as coefficient vector $C$ (Gauss–Chebyshev quadrature) |
+| `.device` `.precision` `.format` `.bytes` | Build environment and memory usage |
+| `.timeOMI` `.timePOM` | Construction time for each phase (seconds) |
+| `.verify` | Verification results (when `'Verify', true`) |
 
 ---
 
-## 數值驗證
+## Numerical Verification
 
-以 `'Verify', true` 執行，實測於 MATLAB R2026a：
+Run with `'Verify', true`, tested on MATLAB R2026a:
 
-| 檢驗項目 | $k=3, M=4$ | $k=5, M=6$ |
+| Verification Item | $k=3, M=4$ | $k=5, M=6$ |
 |---|---|---|
-| 與論文 Eq.(4.9) 逐項比對 | **0** | — |
-| 正交歸一性 $\langle\psi_i,\psi_j\rangle_w=\delta_{ij}$ | 3.36e-16 | 8.39e-16 |
-| $P\Psi$ vs 閉式 $\int_0^t\Psi$（$m\le M-2$ 之列） | 1.11e-16 | 5.55e-17 |
-| POM 投影一致性 $H_n(i,j)=\langle f\psi_j,\psi_i\rangle_w$ | 8.26e-16 | 1.62e-13 |
-| POM 區塊對稱性 | 0 | 0 |
+| Element-wise match with paper Eq. (4.9) | **0** | — |
+| Orthonormality $\langle\psi_i,\psi_j\rangle_w=\delta_{ij}$ | 3.36e-16 | 8.39e-16 |
+| $P\Psi$ vs. closed-form $\int_0^t\Psi$ (rows with $m\le M-2$) | 1.11e-16 | 5.55e-17 |
+| POM projection consistency $H_n(i,j)=\langle f\psi_j,\psi_i\rangle_w$ | 8.26e-16 | 1.62e-13 |
+| POM block symmetry | 0 | 0 |
 
-另以論文 Example 1（$y'+2y=t,\ y(0)=0$）作端對端驗證：本模組解得 $c_{1,0}=0.003866313244751$，與論文印出的 `0.00386631324475085` 一致；$\max|y_{\text{num}}-y_{\text{exact}}|=9.94\times10^{-6}$。
+Additionally, the paper's Example 1 ($y'+2y=t,\ y(0)=0$) serves as an end-to-end validation: this module yields $c_{1,0}=0.003866313244751$, matching the paper's printed value `0.00386631324475085`; $\max|y_{\text{num}}-y_{\text{exact}}|=9.94\times10^{-6}$.
 
-### 收斂階數
+### Convergence Order
 
-固定 $M=4$、逐次加密解析度 $k=1,\dots,7$，逼近 $f(t)=e^{t}\sin(4t)$：
+With $M=4$ fixed, refining the resolution from $k=1,\dots,7$ to approximate $f(t)=e^{t}\sin(4t)$:
 
-![收斂性](figures/fig_convergence.png)
+![Convergence](figures/fig_convergence.png)
 
-實測 $L^2$ 誤差自 $7.9\times10^{-2}$ 單調降至 $4.6\times10^{-9}$，每提高一階 $k$ 誤差降低 $2^{4.00}$ 倍，與理論斜率 $\hat{N}^{-M}$（灰色虛線，兩線幾乎完全重合）一致。
+The measured $L^2$ error decreases monotonically from $7.9\times10^{-2}$ to $4.6\times10^{-9}$, dropping by a factor of $2^{4.00}$ per increment of $k$, consistent with the theoretical slope $\hat{N}^{-M}$ (gray dashed line; the two lines are nearly indistinguishable).
 
 | $k$ | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
 |---|---|---|---|---|---|---|---|
 | $\hat{N}$ | 4 | 8 | 16 | 32 | 64 | 128 | 256 |
-| $L^2$ 誤差 | 7.93e-02 | 5.04e-03 | 3.03e-04 | 1.90e-05 | 1.19e-06 | 7.43e-08 | 4.65e-09 |
-| 收斂階 | — | 3.98 | 4.05 | 4.00 | 4.00 | 4.00 | 4.00 |
+| $L^2$ error | 7.93e-02 | 5.04e-03 | 3.03e-04 | 1.90e-05 | 1.19e-06 | 7.43e-08 | 4.65e-09 |
+| Convergence order | — | 3.98 | 4.05 | 4.00 | 4.00 | 4.00 | 4.00 |
 
-驗證項目 (c) 的參考值取**閉式反導函數** $\int_{-1}^{x}U_m=\frac{T_{m+1}(x)-T_{m+1}(-1)}{m+1}$ 而非數值求積——小波在子區間界點不連續，梯形法會在跨越跳躍時引入 $O(h)$ 誤差（實測會誤報約 2.3e-3）。
+The reference values for verification item (c) use the **closed-form antiderivative** $\int_{-1}^{x}U_m=\frac{T_{m+1}(x)-T_{m+1}(-1)}{m+1}$ rather than numerical quadrature — the wavelets are discontinuous at subinterval boundaries, and the trapezoidal rule introduces $O(h)$ errors at jumps (empirically ~2.3e-3 false positives).
 
 ---
 
-## 效能基準
+## Performance Benchmarks
 
-測試環境：Intel Core i7-13620H（10 執行緒）／32 GB RAM／NVIDIA RTX 4060 Laptop GPU（8 GB）／MATLAB R2026a。
-工作負載為 $P \times X$（$X$ 為同尺寸稠密資料矩陣），以 `timeit` / `gputimeit` 量測。
+Test environment: Intel Core i7-13620H (10 threads) / 32 GB RAM / NVIDIA RTX 4060 Laptop GPU (8 GB) / MATLAB R2026a.
+Workload is $P \times X$ ($X$ is a dense data matrix of the same size), measured via `timeit` / `gputimeit`.
 
-**⚠️ 關於 CPU 數據的重要說明**
+**⚠️ Important Note on CPU Numbers**
 
-本機實測發現 **CPU 端的 BLAS 吞吐量在不同 MATLAB 行程間可相差約 6 倍**（單精度 78 → 531 GFLOPS），推測與 MKL 執行緒池的暖機狀態有關：剛啟動的 `matlab -batch` 行程偏慢，已執行過大量運算的行程則接近硬體峰值。因此下表的 CPU 欄位以**觀測區間**呈現，GPU 欄位則在所有測試中穩定重現。**請勿把單一加速比當作本模組的效能保證，務必在自己的硬體上執行 `demo_omi_pom` 實測。**
+Empirical testing revealed that **CPU-side BLAS throughput can vary ~6× across different MATLAB processes** (single-precision: 78 → 531 GFLOPS), likely due to MKL thread pool warm-up state: freshly launched `matlab -batch` processes run slower, while processes that have already performed heavy computation approach hardware peak. Therefore, CPU columns below are presented as **observed ranges**, while GPU columns are stable and reproducible. **Do not treat any single speedup ratio as a performance guarantee — always run `demo_omi_pom` on your own hardware.**
 
-| 精度 | $\hat{N}$ | GPU 時間 | GPU 吞吐量 | CPU 吞吐量（觀測區間） | 加速比區間 | CPU/GPU 差異 |
+| Precision | $\hat{N}$ | GPU Time | GPU Throughput | CPU Throughput (observed range) | Speedup Range | CPU/GPU Discrepancy |
 |---|---|---|---|---|---|---|
 | double | 4096 | 0.85 s | 161 GFLOPS | 38 – 264 GFLOPS | **0.6× – 4.2×** | 1.1e-15 |
 | single | 4096 | 0.026 s | ~5300 GFLOPS | 78 – 531 GFLOPS | **10× – 68×** | 6.0e-07 |
 | single | 8192 | 0.20 s | ~5500 GFLOPS | 87 – 117 GFLOPS | **49× – 63×** | 8.6e-07 |
 
-實測 GPU 吞吐量 FP32:FP64 $\approx$ 5300:161 $\approx$ 33:1，與 GeForce 架構 FP64 吞吐量為 FP32 的 1/64 的規格相符（含記憶體頻寬影響）。結論：
+The measured GPU throughput ratio FP32:FP64 $\approx$ 5300:161 $\approx$ 33:1, consistent with the GeForce architecture specification where FP64 throughput is 1/64 of FP32 (including memory bandwidth effects). Key takeaways:
 
-- **double 精度下 GPU 未必勝過 CPU**——當 CPU 處於良好狀態時，GPU 反而較慢（0.6×）。若計算對捨入誤差敏感（如病態線性系統求解），請維持 `double` 並留在 CPU。
-- **single 精度才是 GPU 的適用場景**，此時加速一個數量級以上；代價是約 $10^{-7}$ 的相對誤差。
+- **GPU may not outperform CPU at double precision** — when the CPU is in a warm state, the GPU can actually be slower (0.6×). If your computation is sensitive to rounding errors (e.g., solving ill-conditioned linear systems), keep `double` and stay on CPU.
+- **Single precision is the GPU's sweet spot**, delivering over an order of magnitude speedup; the trade-off is ~$10^{-7}$ relative error.
 
-> **量測陷阱**：直接計時 `P*P` 會得到不可靠的結果。$P$ 有約 97% 的零元素，而 MATLAB 的 `zeros()` 對未寫入頁面採惰性配置。請先以 `P = P + 0;` 強制實體化所有記憶體頁，並改用具代表性的稠密工作負載（如 $P \times X$）。`demo_omi_pom.m` 第 7 節已採用此作法。
+> **Measurement pitfall**: Directly timing `P*P` yields unreliable results. $P$ has ~97% zero entries, and MATLAB's `zeros()` uses lazy memory page allocation. Force materialization with `P = P + 0;` first, and use a representative dense workload (e.g., $P \times X$). Section 7 of `demo_omi_pom.m` already follows this practice.
 
-**建構耗時與記憶體：**
+**Construction Time & Memory:**
 
-| 設定 | $\hat{N}$ | 格式 | nnz | 記憶體 | 建構時間 |
+| Setting | $\hat{N}$ | Format | nnz | Memory | Build Time |
 |---|---|---|---|---|---|
 | $k=10,M=8$ | 4096 | full | — | 0.12 GB | ~0.1 s |
 | $k=11,M=8$ | 8192 | full | — | 0.50 GB | ~0.3 s |
 | $k=13,M=8$ | 32768 | sparse | 3.36e7 | 0.50 GB | ~0.5 s |
 | $k=15,M=8$ | 131072 | sparse | 5.37e8 | 8.20 GB | ~12 s |
 
-（建構時間同樣受行程狀態影響，此處取概略值；記憶體與 nnz 則為精確值。）
+(Build times are approximate and subject to process state; memory and nnz values are exact.)
 
 ---
 
-## 數值特性與已知限制
+## Numerical Properties & Known Limitations
 
-### 1. 基底截斷（方法本身的固有性質）
+### 1. Basis Truncation (Inherent Property of the Method)
 
-$P$ 與 $\tilde{F}$ 的每個元素皆為對應函數在 $L^2_{w_n}$ 中的**正交投影係數**，本身無捨入以外的誤差；但基底截斷於 $m=M-1$：
+Every element of $P$ and $\tilde{F}$ is an **orthogonal projection coefficient** in $L^2_{w_n}$, exact up to rounding; however, the basis is truncated at $m=M-1$:
 
-- **OMI**：$\int\psi_{n,m}$ 含 $U_{m+1}$ 項，故 $m\le M-2$ 的列可**精確**重現，$m=M-1$ 的列（各區塊最後一列）為最佳投影近似，誤差 $O(2^{-k}/(2M))$。此即論文的標準作法。
-- **POM**：兩個 $M-1$ 次多項式相乘為 $2M-2$ 次，投影回 $M$ 維子空間必然捨去高次成分，因此 $\Psi^T\tilde{F}$ 只在 $L^2_w$ 意義下逼近 $F^T\Psi\Psi^T$（$k=3,M=4$ 時逐點殘差約 0.33）。**提高 $k$（加密子區間）比提高 $M$ 更能有效降低此誤差。**
+- **OMI**: $\int\psi_{n,m}$ contains a $U_{m+1}$ term, so rows with $m\le M-2$ are reproduced **exactly**, while the row $m=M-1$ (the last row of each block) is a best-approximation projection with error $O(2^{-k}/(2M))$. This is the standard approach in the paper.
+- **POM**: The product of two polynomials of degree $M-1$ has degree $2M-2$; projecting back to the $M$-dimensional subspace necessarily discards higher-order components. Thus $\Psi^T\tilde{F}$ only approximates $F^T\Psi\Psi^T$ in the $L^2_w$ sense (pointwise residual ~0.33 for $k=3, M=4$). **Increasing $k$ (refining subintervals) is more effective than increasing $M$ for reducing this error.**
 
-### 2. 稀疏格式不是 $O(N)$
+### 2. Sparse Format Is Not $O(N)$
 
-離對角區塊 $N$ 在每個右側區塊行皆重複出現，故
+The off-diagonal block $N$ repeats in every right-side block column, so
 
 $$\mathrm{nnz}(P)\approx\frac{L^2}{2}\left\lceil \frac{M}{2}\right\rceil=\frac{\hat{N}^2}{4M}$$
 
-密度趨近 $1/(4M)$（$M=8$ 時實測 0.0313）。稀疏格式僅省下約 $4M$ 倍記憶體，**不改變 $O(N^2)$ 的漸近行為**。`'MemoryLimitGB'` 的估算已依此公式計算（實測與實際配置量誤差 < 1%）。
+The density approaches $1/(4M)$ (measured 0.0313 for $M=8$). The sparse format only saves ~$4M\times$ memory and **does not change the $O(N^2)$ asymptotic behavior**. The `'MemoryLimitGB'` estimate uses this formula (measured vs. actual allocation error < 1%).
 
-### 3. 其他
+### 3. Other Notes
 
-- 稀疏矩陣在 MATLAB 中恆為 double，故 `'Format','sparse'` 會忽略 `'Precision'` 設定並發出警告。
-- `'Format','sparse'` 不搬移至 GPU（`gpuArray` 對稀疏矩陣支援有限）。
-- $M=1$ 時所有列皆受截斷影響，`info.verify.integrationExactness` 回傳 `NaN`。
-
----
-
-## 與原論文的差異說明
-
-論文的**通式** Eqs. (4.11)/(4.12) 與其**顯式** Eq. (4.9) 的 $16\times16$ 矩陣不一致：通式第一行給出 $\pm\frac{2}{(m-1)(m+1)}$ 型係數（如 $\frac{2}{15}$），而 Eq. (4.9) 的實際數值為 $\frac{2^{-k}}{m+1}$ 型。
-
-本模組由定義重新推導，所得 $M$、$N$ 區塊與 **Eq. (4.9) 逐項完全相同（誤差 0）**，並經正交投影檢驗（誤差 $\sim10^{-16}$）確認正確，因此判定論文通式的排版有誤，實作採用與 Eq. (4.9) 一致的版本。
+- Sparse matrices in MATLAB are always double-precision, so `'Format','sparse'` ignores the `'Precision'` setting and issues a warning.
+- `'Format','sparse'` does not transfer to GPU (`gpuArray` has limited sparse matrix support).
+- When $M=1$, all rows are affected by truncation; `info.verify.integrationExactness` returns `NaN`.
 
 ---
 
-## 應用範例：論文 Example 1
+## Deviations from the Original Paper
 
-求解一階線性初值問題 $y'(t)+2y(t)=t,\ y(0)=0$，精確解為 $y=\frac{t}{2}-\frac14+\frac14 e^{-2t}$。
+The paper's **general formulas** Eqs. (4.11)/(4.12) are inconsistent with its **explicit** $16\times16$ matrix in Eq. (4.9): the general formula yields $\pm\frac{2}{(m-1)(m+1)}$-type coefficients (e.g., $\frac{2}{15}$), while the actual values in Eq. (4.9) are of the $\frac{2^{-k}}{m+1}$ type.
 
-令 $y'(t)=C^T\Psi(t)$，兩側自 0 積分並代入初始條件與 $t=E^T\Psi(t)$，由 Eq. (4.8) 得
+This module re-derives from first principles, and the resulting $M$ and $N$ blocks **match Eq. (4.9) element-wise with zero error**, further confirmed by orthogonal projection checks (error $\sim10^{-16}$). We therefore conclude that the general formulas in the paper contain typographic errors, and the implementation follows the version consistent with Eq. (4.9).
+
+---
+
+## Application Example: Paper Example 1
+
+Solving the first-order linear IVP $y'(t)+2y(t)=t,\ y(0)=0$, with exact solution $y=\frac{t}{2}-\frac14+\frac14 e^{-2t}$.
+
+Let $y'(t)=C^T\Psi(t)$, integrate both sides from 0, apply the initial condition and $t=E^T\Psi(t)$, then by Eq. (4.8):
 
 $$(I+2P^T)C=P^TE$$
 
 ```matlab
 [P, ~, info] = build_chebyshev_matrices(3, 4);
 
-E  = info.expand(@(t) t);                         % 論文 Eq.(5.5)
-C  = (eye(info.N) + 2*P.') \ (P.'*E);             % 論文 Eq.(5.7)
+E  = info.expand(@(t) t);                         % Paper Eq.(5.5)
+C  = (eye(info.N) + 2*P.') \ (P.'*E);             % Paper Eq.(5.7)
 y  = @(t) (C.' * info.basis(t)).';                % y(t) = C^T \Psi(t)
 
 tt = linspace(0, 1, 201).';
@@ -335,13 +333,13 @@ fprintf('max error = %.3e\n', err);               % max error = 9.942e-06
 
 ![Example 1](figures/fig_example1.png)
 
-*上：$k=3,\ M=4$ 的小波解與精確解幾乎完全重合。下：固定 $M=4$ 加密 $k$ 時的絕對誤差，$k=3\to6$ 的最大誤差依次為 9.94e-06、7.02e-07、4.67e-08、3.01e-09。*
+*Top: The wavelet solution and exact solution for $k=3,\ M=4$ are nearly indistinguishable. Bottom: Absolute error as $k$ is refined with $M=4$ fixed — maximum errors for $k=3\to6$ are 9.94e-06, 7.02e-07, 4.67e-08, 3.01e-09, respectively.*
 
-### 變係數 ODE：POM 的實際應用
+### Variable-Coefficient ODE: Practical Use of POM
 
-$$y'(t)+t\,y(t)=t,\qquad y(0)=0,\qquad \text{精確解 } y=1-e^{-t^2/2}$$
+$$y'(t)+t\,y(t)=t,\qquad y(0)=0,\qquad \text{exact solution } y=1-e^{-t^2/2}$$
 
-令 $y'=C^T\Psi$，則 $y=(P^TC)^T\Psi=:D^T\Psi$。變係數項以 POM 處理：$a(t)y(t)=(A^T\Psi)(\Psi^TD)=\Psi^T\tilde{A}D$，代入後得
+Let $y'=C^T\Psi$, then $y=(P^TC)^T\Psi=:D^T\Psi$. The variable-coefficient term is handled via POM: $a(t)y(t)=(A^T\Psi)(\Psi^TD)=\Psi^T\tilde{A}D$, yielding
 
 $$(I+\tilde{A}P^T)\,C=G$$
 
@@ -351,235 +349,239 @@ Av = iv.expand(@(t) t);                    % a(t) = t
 Gv = iv.expand(@(t) t);                    % g(t) = t
 [~, Atl]    = build_chebyshev_matrices(7, 6, false, Av);
 
-Cv = (eye(iv.N) + Atl*Pv.') \ Gv;          % y' 的係數
-Dv = Pv.' * Cv;                            % y 的係數（y(0)=0）
+Cv = (eye(iv.N) + Atl*Pv.') \ Gv;          % coefficients of y'
+Dv = Pv.' * Cv;                            % coefficients of y (y(0)=0)
 ```
 
-![變係數 ODE](figures/fig_varcoef.png)
+![Variable-Coefficient ODE](figures/fig_varcoef.png)
 
-*$k=7,\ M=6$ 時最大誤差 $5.2\times10^{-16}$，已達機器精度。$k=3/5/7$ 的誤差依次為 8.20e-09、2.11e-12、5.18e-16。*
+*At $k=7,\ M=6$, the maximum error is $5.2\times10^{-16}$, reaching machine precision. Errors for $k=3/5/7$ are 8.20e-09, 2.11e-12, 5.18e-16, respectively.*
 
 ---
 
-## 應用模組：金融時間序列去噪 `wavelet_denoise_series`
+## Application Module: Financial Time-Series Denoising `wavelet_denoise_series`
 
-資料處理管線的第一步：將 1D（或多檔並排的 2D）時間序列投影至小波空間、濾除高頻雜訊，並同步輸出一階導數作為趨勢強弱特徵。
+The first step in the data processing pipeline: project a 1D (or multi-series 2D) time series into the wavelet space, filter out high-frequency noise, and simultaneously output the first derivative as a trend-strength feature.
 
 ```matlab
 [S_smooth, dS_dt, C, diagOut] = wavelet_denoise_series(S, T, k, M, Name, Value)
 ```
 
-### 三個核心機制
+### Three Core Mechanisms
 
-**1. 投影**：時間軸正規化至 $\tau\in[0,1]$ 後，以 Gauss–Chebyshev 求積計算內積。因基底於各子區間支撐互斥，投影可逐區塊獨立進行，全程化為單一矩陣乘法 $(M\times Q)(Q\times L\cdot n_{\text{series}})$，無區塊或標的迴圈。
+**1. Projection**: After normalizing the time axis to $\tau\in[0,1]$, inner products are computed via Gauss–Chebyshev quadrature. Since each basis function has exclusive support on its subinterval, projection can be performed block-independently, reducing the entire operation to a single matrix multiplication $(M\times Q)(Q\times L\cdot n_{\text{series}})$ — no block or asset loops required.
 
-**2. 去噪**：平滑效果的主要來源是**維度縮減本身**（$\hat{N}=2^{k-1}M \ll n_{\text{obs}}$），另提供次數截斷 `'KeepDegree'` 與係數閾值 `'Threshold'` 兩種可疊加的機制。
+**2. Denoising**: The primary source of smoothing is **dimensionality reduction itself** ($\hat{N}=2^{k-1}M \ll n_{\text{obs}}$). Two additional mechanisms are available and can be combined: degree truncation via `'KeepDegree'` and coefficient thresholding via `'Threshold'`.
 
-**3. 一階導數**：微分將 $m$ 次多項式降為 $m-1$ 次，仍落在同一小波空間內，故存在**精確**的區塊對角微分矩陣 $D$，滿足 $\frac{d}{dt}\Psi(t)=D\,\Psi(t)$。由 $U'_m = 2\sum_{j=m-1,m-3,\dots}(j+1)U_j$ 得
+**3. First Derivative**: Differentiation reduces a degree-$m$ polynomial to degree $m-1$, which remains within the same wavelet space. Thus there exists an **exact** block-diagonal differentiation matrix $D$ satisfying $\frac{d}{dt}\Psi(t)=D\,\Psi(t)$. From $U'_m = 2\sum_{j=m-1,m-3,\dots}(j+1)U_j$:
 
 $$D_{m,j} = 2^{k}\cdot 2(j+1),\qquad j = m-1,\, m-3,\, \dots$$
 
-此處**不採用對 OMI 求逆**的作法：$P$ 的各區塊最後一列已捨去 $U_M$ 項，求逆會放大該截斷誤差與殘餘雜訊。$D$ 與 OMI 的一致性可由 $\int_0^t\Psi = P\Psi$ 兩側微分所得的恆等式驗證：
+This approach **does not invert the OMI**: since the last row of each block in $P$ has already dropped the $U_M$ term, matrix inversion would amplify this truncation error along with residual noise. Consistency between $D$ and the OMI can be verified via the identity obtained by differentiating $\int_0^t\Psi = P\Psi$:
 
 $$P\,D = I$$
 
-實測在各區塊 $m\le M-2$ 的列上誤差為 **0**（機器精度），僅 $m=M-1$ 的列偏離恰好 1.0——正是 $P$ 所捨去的 $U_M$ 項。這是兩個模組數學一致性的交叉驗證。
+Empirically, the error on rows with $m\le M-2$ of each block is **0** (machine precision); only the $m=M-1$ row deviates by exactly 1.0 — precisely the $U_M$ term dropped by $P$. This serves as a cross-validation of mathematical consistency between the two modules.
 
-### 實測基準
+### Empirical Benchmarks
 
-模擬價格（sine + random walk + 高斯雜訊，$n=750$、雜訊 std 1.2），30 次隨機實驗的平均 RMSE：
+Simulated price (sine + random walk + Gaussian noise, $n=750$, noise std 1.2), average RMSE over 30 random trials:
 
-| 方法 | RMSE vs 真實訊號 |
+| Method | RMSE vs. True Signal |
 |---|---|
-| **k=4, M=4 純投影** | **0.284** |
+| **k=4, M=4 pure projection** | **0.284** |
 | Savitzky–Golay (3, 41) | 0.292 |
 | movmean(21) | 0.325 |
 | k=5, M=4, `KeepDegree=2` | 0.330 |
 | k=6, M=4, `Threshold='auto'` (hard) | 0.478 |
-| 原始含噪資料 | 1.197 |
+| Raw noisy data | 1.197 |
 
-導數作為趨勢特徵：$k=4$ 時與真實導數的相關係數達 **0.996**，而直接對含噪資料取差分僅 0.122。
+Derivative as a trend feature: at $k=4$, the correlation with the true derivative reaches **0.996**, while finite-differencing the noisy data directly yields only 0.122.
 
-![去噪示範](figures/fig_denoise.png)
+![Denoising Demo](figures/fig_denoise.png)
 
-*上：去噪結果與真實訊號幾乎重合。中：殘差無結構，表示擬合良好。下：導數準確追蹤真實趨勢，但在子區間界點（虛線）有可見跳躍。*
+*Top: Denoised result and true signal are nearly indistinguishable. Middle: Residuals show no structure, indicating a good fit. Bottom: The derivative accurately tracks the true trend, but exhibits visible jumps at subinterval boundaries (dashed lines).*
 
-### 兩點務必知悉的限制
+### Two Limitations You Must Know
 
-**閾值化在此類資料上並未勝過純投影**（見上表）。原因是本基底屬**分段多項式迴歸基底**，雜訊能量分散於各多項式次數，而非如傳統多解析度小波般稀疏集中，Donoho–Johnstone 的稀疏性假設不成立。此選項預設關閉，保留給雜訊確實稀疏或含脈衝的情境。**請優先調整 $k$**，起始經驗值為每個子區間約 100 個資料點，即 $k \approx \log_2(n_{\text{obs}}/100)+1$。
+**Thresholding does not outperform pure projection for this type of data** (see table above). The reason is that this basis is a **piecewise polynomial regression basis**, where noise energy is distributed across all polynomial degrees rather than being sparsely concentrated as in traditional multi-resolution wavelets — the Donoho–Johnstone sparsity assumption does not hold. This option is disabled by default and is reserved for scenarios where noise is genuinely sparse or contains impulses. **Prioritize adjusting $k$**; a good starting heuristic is ~100 data points per subinterval, i.e., $k \approx \log_2(n_{\text{obs}}/100)+1$.
 
-**子區間界點不連續**：各 $\psi_{n,m}$ 支撐互斥且未施加接合條件，重建序列在 $L-1$ 個界點上會有跳躍。實測即使最佳參數仍達 std(S) 的 15–20%（上圖第三欄清楚可見），$k$ 過大時超過 30%（此時函數會發出警告）。`diagOut.maxBlockJumpRel` 會回報此量。若下游策略對界點附近的導數尖峰敏感，請設遮罩或改用具連續性約束的平滑器。
+**Subinterval boundary discontinuities**: Each $\psi_{n,m}$ has exclusive support with no junction conditions imposed, so the reconstructed series will have jumps at $L-1$ boundary points. Even with optimal parameters, these reach 15–20% of std(S) in practice (clearly visible in the third panel above), exceeding 30% when $k$ is too large (a warning is issued in this case). `diagOut.maxBlockJumpRel` reports this metric. If downstream strategies are sensitive to derivative spikes near boundaries, apply masking or use a smoother with continuity constraints.
 
-### 其他
+### Additional Features
 
-支援 `datetime` / `duration` 時間軸（導數自動以「每日」為單位）、NaN 自動內插補值、非均勻取樣，以及 $n_{\text{obs}}\times n_{\text{series}}$ 的多標的矩陣輸入（多檔與逐檔迴圈結果一致，差異 $4.3\times10^{-14}$）。完整參數說明請執行 `help wavelet_denoise_series`。
+Supports `datetime` / `duration` time axes (derivatives are automatically in per-day units), automatic NaN interpolation, non-uniform sampling, and $n_{\text{obs}}\times n_{\text{series}}$ multi-asset matrix input (multi-asset vs. per-asset loop results differ by $4.3\times10^{-14}$). For full parameter documentation, run `help wavelet_denoise_series`.
 
 ---
 
-## 應用模組：因果特徵萃取 `wavelet_features`
+## Application Module: Causal Feature Extraction `wavelet_features`
 
-資料處理管線的第二步，也是接上預測模型前的必要環節。
+The second step in the data processing pipeline — the essential bridge to prediction models.
 
 ```matlab
 [F, featNames, causal, diagOut] = wavelet_features(S, T, Name, Value)
 ```
 
-### 為什麼需要這一步
+### Why This Step Is Necessary
 
-`wavelet_denoise_series` 把整段序列一次投影，時刻 $t$ 的平滑值用到了 $t$ **之後**的資料。作為事後分析與繪圖的工具沒有問題，但拿去餵預測模型就是典型的 look-ahead bias。本模組改以滾動視窗，確保時刻 $t$ 的特徵只用到 $S(1..t)$。
+`wavelet_denoise_series` projects the entire series at once, so the smoothed value at time $t$ uses data **after** $t$. This is perfectly fine for post-hoc analysis and plotting, but feeding it to a prediction model constitutes textbook look-ahead bias. This module instead uses a rolling window, ensuring that the features at time $t$ use only $S(1..t)$.
 
-這不是理論顧慮。在**純幾何隨機漫步**上做次日漲跌方向預測（ridge、前 70% 訓練、後 30% 樣本外、40 次獨立實驗）——隨機漫步不具可預測性，樣本外準確率顯著高於 0.5 就只可能來自資料洩漏：
+This is not a theoretical concern. We test on a **pure geometric random walk** for next-day direction prediction (ridge regression, first 70% for training, last 30% out-of-sample, 40 independent experiments) — a random walk has no predictability, so out-of-sample accuracy significantly above 0.5 can only come from data leakage:
 
-| 特徵來源 | 樣本外準確率 | 距 0.5 |
+| Feature Source | OOS Accuracy | Distance from 0.5 |
 |---|---|---|
-| **本模組（因果）** | **0.5007 ± 0.0038** | **+0.2 SE** |
-| 批次去噪的斜率 | 0.5341 ± 0.0041 | +8.3 SE |
-| 批次平滑值 − 收盤價 | 0.5630 ± 0.0033 | +18.8 SE |
-| 上述兩者合用 | 0.5748 ± 0.0034 | +22.3 SE |
+| **This module (causal)** | **0.5007 ± 0.0038** | **+0.2 SE** |
+| Batch denoised slope | 0.5341 ± 0.0041 | +8.3 SE |
+| Batch smoothed value − close price | 0.5630 ± 0.0033 | +18.8 SE |
+| Both of the above combined | 0.5748 ± 0.0034 | +22.3 SE |
 
-非因果特徵在毫無訊號的資料上可虛增最多 **7.5 個百分點**的樣本外準確率。反向驗證：改用含真實週期成分的序列，本模組特徵的樣本外準確率為 **0.7066 ± 0.0042**（多數類基準 0.5197）——無訊號時不捏造訊號，有訊號時抓得到。
+Non-causal features can inflate out-of-sample accuracy by up to **7.5 percentage points** on data with zero signal. Reverse validation: on a series with real periodic components, this module's features achieve OOS accuracy of **0.7066 ± 0.0042** (majority-class baseline 0.5197) — no fabricated signal when there is none, but captures signal when it exists.
 
-![因果特徵](figures/fig_causal.png)
+![Causal Features](figures/fig_causal.png)
 
-*上：批次平滑器（紅）用到未來資料，曲線平滑但不可用於建模；因果平滑器（藍）只用過去資料，必然較晚反應。下：隨機漫步上的方向準確率，虛線以上的部分全部是洩漏。*
+*Top: The batch smoother (red) uses future data — the curve is smooth but unusable for modeling; the causal smoother (blue) uses only past data and necessarily reacts later. Bottom: Direction accuracy on a random walk — everything above the dashed line is leakage.*
 
-### 設計依據（兩項實測）
+### Design Rationale (Two Empirical Studies)
 
-**預設 `Weighting='uniform'`**：論文的權函數 $w=\sqrt{1-x^2}$ 在 $x=\pm1$ 歸零，恰好把「最新的觀測值」權重壓到最低，對因果特徵不利。實測視窗右端的估計誤差，均勻最小平方較加權投影低約 25%：
+**Default `Weighting='uniform'`**: The paper's weight function $w=\sqrt{1-x^2}$ vanishes at $x=\pm1$, which pushes the weight of the most recent observation to near zero — undesirable for causal features. Empirically, the estimation error at the right edge of the window is ~25% lower with uniform least squares than with weighted projection:
 
-| $W=63,\ M=4$ | 右端值 RMSE | 右端斜率 RMSE |
+| $W=63,\ M=4$ | Right-edge Value RMSE | Right-edge Slope RMSE |
 |---|---|---|
 | uniform | **0.0449** | **0.819** |
 | chebyshev | 0.0642 | 0.924 |
 
-**預設 `k=1`**：本基底於子區間支撐互斥，故 $k\ge2$ 時「視窗右端的值與斜率只取決於最後一個子區間的 $W/2^{k-1}$ 個點」——實測改動視窗前半段資料，右端特徵變化量恰為 **0**。這使 $W$ 與 $k$ 在右端特徵上互相抵消，因此多尺度資訊改由多組**視窗長度** `'Windows'` 提供。
+**Default `k=1`**: Since this basis has mutually exclusive supports, for $k\ge2$ the value and slope at the right edge of the window depend **only on the last subinterval's $W/2^{k-1}$ points** — empirically, altering the first half of the window changes the right-edge features by exactly **0**. This makes $W$ and $k$ cancel each other for right-edge features, so multi-scale information is instead provided via multiple **window lengths** `'Windows'`.
 
-### 特徵集
+### Feature Set
 
-每個視窗長度產生 6 個無因次特徵（預設 `Windows = [21 63 252]`，即 18 個特徵）：
+Each window length produces 6 dimensionless features (default `Windows = [21 63 252]`, yielding 18 features total):
 
-| 特徵 | 定義 | 意義 |
+| Feature | Definition | Interpretation |
 |---|---|---|
-| `trend` | $\dfrac{dS/d\tau}{S}$ | 一個視窗長度內的相對變化 |
-| `trendT` | $\dfrac{dS/d\tau}{\sigma_{\text{res}}}$ | 以殘差標準差標準化的趨勢強度（類 $t$ 統計量） |
-| `curv` | $\dfrac{d^2S/d\tau^2}{S}$ | 曲率／加速度，偵測趨勢轉折 |
-| `dev` | $\dfrac{S(t)-\hat{S}(t)}{\sigma_{\text{res}}}$ | 標準化偏離（均值回歸訊號） |
-| `vol` | $\dfrac{\sigma_{\text{res}}}{S}$ | 視窗內相對波動度 |
-| `rough` | $\dfrac{\sum_{m\ge2}E_m}{\sum_{m\ge1}E_m}$ | 高次係數能量佔比（走勢非線性程度） |
+| `trend` | $\dfrac{dS/d\tau}{S}$ | Relative change over one window length |
+| `trendT` | $\dfrac{dS/d\tau}{\sigma_{\text{res}}}$ | Trend strength normalized by residual std (t-statistic analogue) |
+| `curv` | $\dfrac{d^2S/d\tau^2}{S}$ | Curvature / acceleration — detects trend reversals |
+| `dev` | $\dfrac{S(t)-\hat{S}(t)}{\sigma_{\text{res}}}$ | Standardized deviation (mean-reversion signal) |
+| `vol` | $\dfrac{\sigma_{\text{res}}}{S}$ | Within-window relative volatility |
+| `rough` | $\dfrac{\sum_{m\ge2}E_m}{\sum_{m\ge1}E_m}$ | Energy share of higher-order coefficients (nonlinearity of trend) |
 
-導數同樣由區塊對角微分矩陣 $D$ 求得，二階導數即連續作用兩次：$\frac{d^2S}{d\tau^2}=\Psi^{T}(D^{T})^{2}C$。獨立逐點重算驗證，平滑值、`trend`、`curv` 的差異皆在 $10^{-13}$ 以下。
+Derivatives are likewise computed via the block-diagonal differentiation matrix $D$; the second derivative is obtained by applying $D$ twice: $\frac{d^2S}{d\tau^2}=\Psi^{T}(D^{T})^{2}C$. Independent point-by-point recomputation confirms that smoothed values, `trend`, and `curv` agree to within $10^{-13}$.
 
-### 與預測目標的對齊
+### Alignment with Prediction Targets
 
 ```matlab
 [F, names] = wavelet_features(S, T);
-y   = [sign(diff(S)); NaN];        % y(t) = 下一期漲跌方向
+y   = [sign(diff(S)); NaN];        % y(t) = next-period direction
 ok  = all(isfinite(F), 2) & isfinite(y);
 Xtr = F(ok, :);   ytr = y(ok);
 ```
 
-**切勿把 `F` 往前移以「對齊」標籤**——那會直接製造前視偏誤。切分訓練/測試集必須依時間先後（walk-forward），不可隨機切分。
+**Do NOT shift `F` forward to "align" with labels** — that directly creates look-ahead bias. Train/test splits must follow temporal order (walk-forward), never random splits.
 
-`'Verify', true` 會執行因果性自我檢驗：擾動未來資料後，過去的特徵必須完全不變（`diagOut.leakTest` 應為 0，否則直接報錯）。
+Setting `'Verify', true` runs a causality self-check: after perturbing future data, past features must remain completely unchanged (`diagOut.leakTest` should be 0; otherwise an error is raised).
 
-### 效能
+### Performance
 
-視窗長度固定且觀測序號等距時，投影運算子對每個視窗完全相同，故先建構一次 $(N\times W)$ 的線性運算子，再以單一矩陣乘法作用於所有視窗，時間軸完全向量化。實測 20 檔 × 1500 筆共 18 個特徵約 0.27 秒；多標的與逐檔迴圈的結果差異 $3.5\times10^{-13}$。
+When the window length is fixed and observations are equally spaced, the projection operator is identical for every window. The operator is constructed once as an $(N\times W)$ linear map and applied to all windows via a single matrix multiplication — the time axis is fully vectorized. Empirically, 20 assets × 1500 observations × 18 features takes ~0.27 seconds; multi-asset vs. per-asset loop results differ by $3.5\times10^{-13}$.
 
 ---
 
-## 應用模組：預測模型與 walk-forward 回測 `walkforward_backtest`
+## Application Module: Prediction & Walk-Forward Backtesting `walkforward_backtest`
 
-資料處理管線的第三步。以前進式的方式週期性重新訓練、只在未見過的區段產生預測，並內建虛無假設檢定以判斷績效是否僅為隨機。不依賴任何工具箱（ridge 為閉式解，logistic 以 IRLS 自行實作）。
+The third step in the data processing pipeline. Periodically retrains using a walk-forward scheme, generates predictions only on unseen segments, and includes built-in null-hypothesis testing to determine whether performance is merely due to chance. No toolbox dependencies (ridge is computed in closed form; logistic regression is implemented via IRLS).
 
 ```matlab
 F   = wavelet_features(S, T);
 res = walkforward_backtest(F, S, 'NullRuns', 200, 'CostBps', 5);
-fprintf('準確率 %.4f (p = %.3f) | Sharpe %.2f (p = %.3f)\n', ...
+fprintf('Accuracy %.4f (p = %.3f) | Sharpe %.2f (p = %.3f)\n', ...
     res.accuracy, res.null.pAccuracy, res.sharpe, res.null.pSharpe);
 ```
 
-### 框架如何避免資料洩漏
+### How the Framework Prevents Data Leakage
 
-1. **時間切分**：訓練集永遠位於測試集之前，絕不隨機切分。
-2. **標準化只用訓練集統計量**：每次重新訓練時以該次訓練集的均值與標準差標準化。
-3. **超參數只用訓練集**：測試段完全不參與選擇。
-4. **標籤對齊**：位於 $t$ 的特徵預測 $t \to t+1$ 的報酬，部位於 $t$ 建立、$t+1$ 結算。
-5. **空窗期**：訓練集結尾與測試段起點之間可留空窗（預設 1 期）。
+1. **Temporal splits**: The training set always precedes the test set — never random splits.
+2. **Normalization uses training-set statistics only**: At each retraining, features are standardized using the training set's mean and standard deviation.
+3. **Hyperparameters use training set only**: The test segment is completely excluded from selection.
+4. **Label alignment**: Features at time $t$ predict the return from $t$ to $t+1$; the position is established at $t$ and settled at $t+1$.
+5. **Embargo period**: A gap can be left between the training set end and the test segment start (default: 1 period).
 
-兩項實測驗證：改動測試段**之後**的資料，先前的預測**0 / 489 筆**改變；把測試段的特徵尺度乘以 50，先前的預測**0 筆**改變（確認未使用全樣本統計量）。
+Two empirical validations: altering data **after** the test segment changes **0 / 489** prior predictions; scaling test-segment features by 50× changes **0** prior predictions (confirming no use of full-sample statistics).
 
-### 虛無假設檢定與其校準
+### Null-Hypothesis Testing & Calibration
 
-回測框架本身可能因多重比較或實作瑕疵產生虛假績效，因此本模組內建虛無分布：保持特徵不變，重組報酬序列以破壞特徵與標籤的對應，再以相同流程重跑。
+The backtesting framework itself could produce spurious performance through multiple comparisons or implementation artifacts, so this module includes a built-in null distribution: features are kept fixed while return sequences are reshuffled to break the feature–label correspondence, and the same procedure is rerun.
 
-**校準是必須驗證的**——校準不良的顯著性檢定比沒有檢定更危險。在 40 條純隨機漫步上（不具可預測性，故 p 值理論上應為均勻分布），每條 150 個虛無樣本：
+**Calibration must be verified** — a poorly calibrated significance test is worse than no test at all. On 40 pure random walks (no predictability, so p-values should theoretically be uniformly distributed), each with 150 null samples:
 
-| | `P(p<0.05)` | `P(p<0.10)` | `P(p<0.20)` | KS |
+| | $P(p<0.05)$ | $P(p<0.10)$ | $P(p<0.20)$ | KS |
 |---|---|---|---|---|
-| 名目值 | 0.05 | 0.10 | 0.20 | — |
-| `shift` 準確率 | 0.050 | 0.075 | 0.250 | 0.100 |
+| Nominal | 0.05 | 0.10 | 0.20 | — |
+| `shift` Accuracy | 0.050 | 0.075 | 0.250 | 0.100 |
 | `shift` Sharpe | 0.025 | 0.175 | 0.275 | 0.163 |
-| **`block` 準確率** | 0.000 | 0.025 | 0.175 | 0.141 |
+| **`block` Accuracy** | 0.000 | 0.025 | 0.175 | 0.141 |
 | **`block` Sharpe** | 0.025 | **0.050** | **0.200** | **0.072** |
 
-`block`（區塊自助法，預設）的 Sharpe p 值幾乎完全均勻，準確率則偏保守；`shift`（循環位移）的 Sharpe 在 10% 水準偏樂觀。因 Sharpe 是實際決策依據，預設採 `block`。
+The `block` method (block bootstrap, default) yields nearly uniform Sharpe p-values, while accuracy p-values are slightly conservative. The `shift` method (circular shift) produces optimistic Sharpe p-values at the 10% level. Since Sharpe is the practical decision criterion, `block` is the default.
 
-### 為何預設固定 λ
+### Why the Default Uses a Fixed λ
 
-開發過程中發現原本的「內部驗證選擇 λ」會破壞上述校準。兩項證據：
+During development, the original "internal validation to select λ" approach was found to break the above calibration. Two pieces of evidence:
 
-**λ 幾乎不影響績效**——跨六個數量級掃描，含訊號資料的樣本外準確率僅由 0.7048 變動到 0.7119，且內部驗證選中的值散布於整個網格，形同隨機挑選。
+**λ barely affects performance** — scanning across six orders of magnitude, the out-of-sample accuracy on signal-bearing data varies only from 0.7048 to 0.7119, and the internally selected values are scattered across the entire grid, effectively random.
 
-**λ 選擇會使 p 值系統性偏小**——同樣 40 條隨機漫步，唯一差異為是否選擇 λ：
+**λ selection systematically deflates p-values** — on the same 40 random walks, the only difference being whether λ is selected:
 
-| | `P(p<0.05)` 準確率 | `P(p<0.05)` Sharpe |
+| | $P(p<0.05)$ Accuracy | $P(p<0.05)$ Sharpe |
 |---|---|---|
-| 內部驗證選擇 λ | 0.100 | 0.125 |
-| **固定 λ = 1** | **0.050** | **0.025** |
+| Internal validation for λ | 0.100 | 0.125 |
+| **Fixed λ = 1** | **0.050** | **0.025** |
 
-原因是虛無樣本沿用了「在真實標籤上調好的」超參數，使虛無模型相對吃虧。使用者若仍提供 λ 向量，本模組會在每個虛無樣本內以置換後的標籤重新選擇 λ 以維持對稱，但計算量顯著增加。
+The reason is that null samples inherit hyperparameters tuned on the real labels, giving the null model a systematic disadvantage. If the user still provides a λ vector, this module re-selects λ using the permuted labels within each null sample to maintain symmetry, but at significantly increased computational cost.
 
-![回測](figures/fig_backtest.png)
+![Backtest](figures/fig_backtest.png)
 
-*左：隨機漫步上策略 Sharpe 0.46、$p=0.059$，觀測值落在虛無分布之內，且輸給買進持有。右：含真實訊號時觀測值遠在虛無分布之外。單次結果本就有約 5% 機率偶然顯著，故框架的可信度來自上面的校準表，而非任何單次結果。*
+*Left: On a random walk, strategy Sharpe is 0.46 with $p=0.059$; the observed value falls within the null distribution and underperforms buy-and-hold. Right: With a real signal, the observed value is far outside the null distribution. Any single result has ~5% chance of being spuriously significant; the framework's credibility rests on the calibration table above, not on any individual result.*
 
-### 偵測力：這套框架能偵測到多弱的訊號
+### Detection Power: How Weak a Signal Can This Framework Detect?
 
-以報酬含 AR(1) 的合成序列測試（$n=2500$、12 次重複、每次 120 個虛無樣本）。$\phi$ 為日報酬的自我相關：
+Tested on synthetic series with AR(1) returns ($n=2500$, 12 replicates, 120 null samples each). $\phi$ is the autocorrelation of daily returns:
 
-| $\phi$ | 準確率 | 策略 Sharpe | 買進持有 Sharpe | p 中位數 | 檢定力 |
+| $\phi$ | Accuracy | Strategy Sharpe | Buy-and-Hold Sharpe | Median p | Power |
 |---|---|---|---|---|---|
 | 0 | 0.5011 | 0.078 | 0.446 | 0.467 | **0.00** |
 | 0.05 | 0.4973 | 0.172 | 0.368 | 0.512 | 0.17 |
 | 0.10 | 0.5118 | 0.298 | 0.315 | 0.421 | 0.25 |
 | 0.20 | 0.5359 | **1.487** | 0.602 | 0.012 | **0.83** |
 
-兩個必須認清的結論：
+Two conclusions you must accept:
 
-1. **需要 $\phi \approx 0.20$ 才能穩定偵測到**（檢定力 0.83）；$\phi=0.05$ 時僅 0.17。真實股票日報酬的自我相關通常只有 0.00–0.05，**落在本框架偵測不到的區間**。
-2. **$\phi \le 0.10$ 時策略 Sharpe 全都輸給買進持有**，要到 $\phi=0.20$ 才真正勝出。
+1. **A signal of $\phi \approx 0.20$ is needed for reliable detection** (power 0.83); at $\phi=0.05$, power is only 0.17. Real stock daily return autocorrelation is typically 0.00–0.05, **falling in the undetectable range of this framework**.
+2. **For $\phi \le 0.10$, the strategy Sharpe consistently underperforms buy-and-hold**; it only truly wins at $\phi=0.20$.
 
-這是單一序列在此樣本數下的統計極限，不是實作缺陷。要提升的方向是更長的歷史、更具預測力的特徵，或改走橫斷面（同時使用數百檔標的累積證據）——而非在同一條序列上反覆調參，那只會提高過度擬合的風險。
+This is a statistical limitation at this sample size for a single series, not an implementation flaw. Paths to improvement include longer histories, more predictive features, or a cross-sectional approach (accumulating evidence across hundreds of assets simultaneously) — not repeatedly tuning parameters on the same series, which only increases overfitting risk.
 
-### 一個容易誤判的陷阱
+### A Common Trap
 
-**在有漂移的價格序列上，「準確率」與「Sharpe」都會獎勵單純做多。** 實測 λ 極大時模型退化為永遠預測多數類，得到準確率 0.5106、Sharpe 0.396，看似有技能，實則等同買進持有。因此正確的對照基準不是 0.5，而是 `res.baseline` 同時回報的多數類與買進持有績效。上圖左半即為一例：策略 Sharpe 0.46 看似為正，但同期買進持有更高。
+**On price series with drift, both "accuracy" and "Sharpe" reward being simply long.** Empirically, when λ is extremely large, the model degenerates to always predicting the majority class, achieving accuracy 0.5106 and Sharpe 0.396 — seemingly skillful but effectively equivalent to buy-and-hold. Therefore, the correct benchmark is not 0.5 but the majority-class and buy-and-hold performance simultaneously reported in `res.baseline`. The left panel above is exactly this case: strategy Sharpe of 0.46 appears positive, but buy-and-hold is higher over the same period.
 
 ---
 
-## 專案結構
+## Project Structure
 
 ```
 chebyshev_wavelet_core/
-├── build_chebyshev_matrices.m   % 主函數（含 5 個局部函數：基底求值、
-│                                %   函數展開、自我驗證、閉式反導函數、
-│                                %   Chebyshev 多項式遞迴）
-├── wavelet_denoise_series.m     % 應用模組 1：金融時間序列去噪與趨勢特徵
-├── wavelet_features.m           % 應用模組 2：因果特徵萃取（供預測模型使用）
-├── walkforward_backtest.m       % 應用模組 3：預測模型與 walk-forward 回測
-├── demo_omi_pom.m               % 示範腳本（10 個章節，見下）
-├── figures/                     % README 所用圖檔（由示範腳本產生）
+├── build_chebyshev_matrices.m   % Main function (with 5 local functions: basis
+│                                %   evaluation, function expansion, self-
+│                                %   verification, closed-form antiderivative,
+│                                %   Chebyshev polynomial recurrence)
+├── wavelet_denoise_series.m     % Application Module 1: financial time-series
+│                                %   denoising and trend features
+├── wavelet_features.m           % Application Module 2: causal feature extraction
+│                                %   (for prediction models)
+├── walkforward_backtest.m       % Application Module 3: prediction model and
+│                                %   walk-forward backtesting
+├── demo_omi_pom.m               % Demo script (10 sections, see below)
+├── figures/                     % Figures for README (generated by demo script)
 │   ├── fig_basis.png
 │   ├── fig_structure.png
 │   ├── fig_convergence.png
@@ -592,30 +594,30 @@ chebyshev_wavelet_core/
 └── LICENSE
 ```
 
-圖檔可隨時重新產生：將 `demo_omi_pom.m` 開頭的 `EXPORT_PNG` 設為 `true` 後執行，即會輸出至 `figures/`（圖表文字採英文，因 MATLAB 預設字型不含 CJK 字元，中文標籤在匯出的 PNG 中會顯示為方框）。
+Figures can be regenerated at any time: set `EXPORT_PNG` to `true` at the top of `demo_omi_pom.m` and run it — figures will be exported to `figures/`. (Figure text is in English, since MATLAB's default font does not include CJK characters and Chinese labels would render as boxes in exported PNGs.)
 
-### 示範腳本
+### Demo Script
 
 ```matlab
-demo_omi_pom      % 完整執行，或在編輯器中以 Ctrl+Enter 逐節執行
+demo_omi_pom      % Run in full, or execute section-by-section with Ctrl+Enter
 ```
 
-| 章節 | 內容 |
+| Section | Content |
 |---|---|
-| 1 | 建構 OMI 並與論文 Eq.(4.9) 逐項比對，繪製區塊上三角結構 |
-| 2 | 16 個基底函數 $\psi_{n,m}(t)$ 視覺化 |
-| 3 | 函數逼近收斂階數驗證（實測每提高一階 $k$ 誤差降低 $2^{4.00}$ 倍，符合理論 $2^M$） |
-| 4 | POM 的區塊對角結構，及「乘積次數是否超出基底」造成的截斷效應對照 |
-| 5 | 論文 Example 1：$y'+2y=t$，並列出 $k=3\dots6$ 的誤差收斂 |
-| 6 | 變係數 ODE $y'+ty=t$：POM 的實際應用 |
-| 7 | 稀疏格式與 CPU/GPU 效能量測 |
-| 8 | 金融時間序列去噪與趨勢特徵（`wavelet_denoise_series`），含 $k$ 的參數掃描 |
-| 9 | 因果特徵萃取與前視偏誤量化（`wavelet_features`），20 次隨機實驗 |
-| 10 | 預測模型與 walk-forward 回測（`walkforward_backtest`），含虛無分布 |
+| 1 | Build OMI and verify element-wise against paper Eq. (4.9); visualize block upper-triangular structure |
+| 2 | Visualize the 16 basis functions $\psi_{n,m}(t)$ |
+| 3 | Convergence order verification (measured $2^{4.00}\times$ error reduction per $k$ increment, matching theory $2^M$) |
+| 4 | POM block-diagonal structure and truncation effects when product degree exceeds basis order |
+| 5 | Paper Example 1: $y'+2y=t$, with error convergence for $k=3\dots6$ |
+| 6 | Variable-coefficient ODE $y'+ty=t$: practical application of POM |
+| 7 | Sparse format and CPU/GPU performance measurement |
+| 8 | Financial time-series denoising and trend features (`wavelet_denoise_series`), with $k$ parameter sweep |
+| 9 | Causal feature extraction and look-ahead bias quantification (`wavelet_features`), 20 random experiments |
+| 10 | Prediction model and walk-forward backtesting (`walkforward_backtest`), with null distribution |
 
-## 引用
+## Citation
 
-若本模組對您的研究有幫助，請引用原論文：
+If this module is useful for your research, please cite the original paper:
 
 ```bibtex
 @article{Nigam2026Chebyshev,
@@ -632,6 +634,6 @@ demo_omi_pom      % 完整執行，或在編輯器中以 Ctrl+Enter 逐節執行
 }
 ```
 
-## 授權
+## License
 
-本專案採用 [MIT License](LICENSE)，Copyright (c) 2026 Kao, En-Tsai。
+This project is licensed under the [MIT License](LICENSE), Copyright (c) 2026 Kao, En-Tsai.
