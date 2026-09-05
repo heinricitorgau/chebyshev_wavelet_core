@@ -1,6 +1,6 @@
 %% DEMO_OMI_POM  第二類 Chebyshev 小波運算矩陣示範腳本
 %
-%   本腳本示範本套件的完整用法，共八個章節：
+%   本腳本示範本套件的完整用法，共九個章節：
 %
 %     1. 建構 OMI 並與論文 Eq.(4.9) 逐項比對
 %     2. 小波基底函數視覺化
@@ -10,6 +10,7 @@
 %     6. 變係數 ODE：POM 的實際應用
 %     7. 效能與 GPU 加速
 %     8. 應用：金融時間序列去噪與趨勢特徵 (wavelet_denoise_series)
+%     9. 因果特徵萃取與前視偏誤量化 (wavelet_features)
 %
 %   於 MATLAB 編輯器中可用 Ctrl+Enter 逐節執行；亦可直接
 %       >> demo_omi_pom
@@ -429,10 +430,102 @@ fprintf(['  註：本基底於子區間界點不連續，導數在界點（圖�
          '      可見的跳躍，此為方法固有性質，詳見 help wavelet_denoise_series。\n']);
 
 
+%% 9. 因果特徵與前視偏誤 ==================================================
+% wavelet_features 以滾動視窗確保「時刻 t 的特徵只用到 t 之前的資料」。
+% 本節量化：若改用第 8 節的批次去噪結果當特徵，會虛增多少樣本外準確率。
+fprintf('\n【9】因果特徵萃取與前視偏誤量化 (wavelet_features)\n');
+
+nSeed   = 20;
+nS      = 1500;
+tIdx    = (1:nS).';
+splitAt = round(0.7 * nS);
+accRW   = zeros(nSeed, 4);
+accSig  = zeros(nSeed, 1);
+
+% 本節刻意以「非因果」方式使用批次去噪作為反例，其界點跳躍警告在此無意義，
+% 故暫時關閉；離開本節時還原。
+wState = warning('off', 'wavelet_denoise_series:blockJump');
+cleanupWarn = onCleanup(@() warning(wState));
+
+for sd = 1:nSeed
+    % (I) 純隨機漫步：不具可預測性，樣本外高於 0.5 即代表洩漏
+    rng(1000 + sd);
+    pw = 100 * cumprod(1 + 0.0004 + 0.011*randn(nS,1));
+    yw = [sign(diff(pw)); NaN];
+    [bSm, bSl] = wavelet_denoise_series(pw, tIdx, 4, 4);      % 批次（非因果）
+    Fw = wavelet_features(pw, tIdx);                          % 因果
+    cand = {Fw, bSl, bSm - pw, [bSl, bSm - pw]};
+    for c = 1:4
+        accRW(sd, c) = local_dir_acc(cand{c}, yw, splitAt);
+    end
+
+    % (II) 含真實週期訊號：因果特徵應抓得到
+    rng(2000 + sd);
+    ps = 100 + 15*sin(2*pi*(1:nS).'/180) + cumsum(0.25*randn(nS,1)) + randn(nS,1);
+    accSig(sd) = local_dir_acc(wavelet_features(ps, tIdx), ...
+                               [sign(diff(ps)); NaN], splitAt);
+end
+
+labels = {'因果特徵', '批次斜率', '批次平滑-價格', '兩者合用'};
+fprintf('  純隨機漫步 (%d 次實驗) 的樣本外準確率：\n', nSeed);
+for c = 1:4
+    m  = mean(accRW(:,c));
+    se = std(accRW(:,c)) / sqrt(nSeed);
+    fprintf('    %-14s %.4f +- %.4f  (距 0.5 為 %+.1f 個標準誤)\n', ...
+        labels{c}, m, se, (m - 0.5)/se);
+end
+fprintf('  含真實訊號序列，因果特徵：%.4f +- %.4f\n', ...
+    mean(accSig), std(accSig)/sqrt(nSeed));
+fprintf('  => 因果特徵在無訊號時落在 0.5（未捏造訊號），有訊號時抓得到。\n');
+
+if SHOW_PLOTS
+    rng(1001);
+    pw = 100 * cumprod(1 + 0.0004 + 0.011*randn(nS,1));
+    [bSm, ~] = wavelet_denoise_series(pw, tIdx, 4, 4);
+    [~, ~, cz] = wavelet_features(pw, tIdx);
+
+    figCz = figure('Name', 'Causal features', 'Color', 'w', ...
+        'Position', [90 90 960 640]);
+    subplot(2,1,1);
+    seg = 400:700;
+    plot(seg, pw(seg), '-', 'Color', [.72 .72 .75], 'LineWidth', .9);
+    hold on; grid on; box on;
+    plot(seg, bSm(seg), '-', 'Color', [.85 .16 .16], 'LineWidth', 1.8);
+    plot(seg, cz.smooth(seg,2), '-', 'Color', [.1 .35 .75], 'LineWidth', 1.8);
+    legend({'price', 'batch smoother (uses future data)', ...
+            'causal smoother (past only, $W=63$)'}, ...
+        'Interpreter', 'latex', 'Location', 'best', 'FontSize', 10);
+    xlabel('$t$', 'Interpreter', 'latex', 'FontSize', 12);
+    ylabel('price', 'FontSize', 12);
+    title('Batch (non-causal) vs causal smoothing', ...
+        'Interpreter', 'latex', 'FontSize', 13);
+    set(gca, 'FontSize', 10);
+
+    subplot(2,1,2);
+    mv = mean(accRW, 1);
+    sev = std(accRW, 0, 1) / sqrt(nSeed);
+    b = bar(mv, 'FaceColor', 'flat');
+    b.CData = [0.15 0.45 0.75; 0.85 0.45 0.16; 0.85 0.30 0.16; 0.75 0.12 0.12];
+    hold on; grid on; box on;
+    errorbar(1:4, mv, sev, 'k.', 'LineWidth', 1.2);
+    yline(0.5, 'k--', 'LineWidth', 1.4);
+    set(gca, 'XTickLabel', {'causal (ours)', 'batch slope', ...
+                            'batch smooth - price', 'both'}, 'FontSize', 10);
+    ylim([0.45 0.62]);
+    ylabel('out-of-sample accuracy', 'FontSize', 12);
+    title(['Directional accuracy on pure random walks ' ...
+           '($n_{\mathrm{seed}} = ' num2str(nSeed) '$): ' ...
+           'anything above the dashed line is leakage'], ...
+        'Interpreter', 'latex', 'FontSize', 12);
+    export_png(figCz, 'fig_causal', EXPORT_PNG, FIG_DIR);
+end
+
+
 fprintf('\n===============================================================\n');
 fprintf(' 示範結束。詳細 API 說明請執行：\n');
 fprintf('   help build_chebyshev_matrices\n');
 fprintf('   help wavelet_denoise_series\n');
+fprintf('   help wavelet_features\n');
 fprintf('===============================================================\n');
 
 
@@ -448,6 +541,21 @@ end
 fpath = fullfile(figDir, [name '.png']);
 exportgraphics(figHandle, fpath, 'Resolution', 150, 'BackgroundColor', 'white');
 fprintf('  已輸出圖檔 : %s\n', fpath);
+end
+
+
+function a = local_dir_acc(X, y, splitAt)
+%LOCAL_DIR_ACC 以 ridge 迴歸做方向分類，回傳樣本外準確率（依時間切分）
+ok  = all(isfinite(X), 2) & isfinite(y);
+idx = find(ok);
+tr  = idx(idx <= splitAt);
+te  = idx(idx >  splitAt);
+Xtr = X(tr,:);  Xte = X(te,:);
+mu  = mean(Xtr, 1);  sd = std(Xtr, 0, 1);  sd(sd == 0) = 1;
+Xtr = [ones(numel(tr),1), (Xtr - mu)./sd];
+Xte = [ones(numel(te),1), (Xte - mu)./sd];
+w   = (Xtr.'*Xtr + 1e-3*eye(size(Xtr,2))) \ (Xtr.'*y(tr));
+a   = mean(sign(Xte*w) == y(te));
 end
 
 
